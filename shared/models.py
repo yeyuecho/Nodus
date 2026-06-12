@@ -80,8 +80,15 @@ class ModelAdapter:
         resp = await self.client.chat.completions.create(**kwargs)
 
         choice = resp.choices[0]
+        msg = choice.message
+
+        # 调试：记录 DeepSeek 实际返回的 tool_calls 格式
+        import logging
+        _log = logging.getLogger("qiyue.models")
+        _log.info(f"finish_reason={choice.finish_reason} content_len={len(msg.content or '')} tool_calls={msg.tool_calls}")
+
         response = ChatResponse(
-            content=choice.message.content or "",
+            content=msg.content or "",
             model=resp.model,
             usage={
                 "prompt_tokens": resp.usage.prompt_tokens if resp.usage else 0,
@@ -90,8 +97,10 @@ class ModelAdapter:
             },
         )
 
-        # 附加 tool_calls（如果有）—— 兼容 DeepSeek 返回格式
-        tc = getattr(choice.message, 'tool_calls', None) or []
+        # 附加 tool_calls
+        tc = getattr(msg, 'tool_calls', None) or []
+        if tc:
+            _log.info(f"tool_calls count={len(tc)} type={type(tc[0]) if tc else 'N/A'}")
         if tc:
             response.tool_calls = []
             for t in tc:
