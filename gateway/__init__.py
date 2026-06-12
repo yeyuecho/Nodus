@@ -36,7 +36,11 @@ class MessageRouter:
     """消息路由 — LLM 生成 ACK + 会话管理 + 转发 brain"""
 
     SESSION_PREFIX = "unified:"
-    ACK_PROMPT = "简短自然地回应用户（≤5字），像朋友聊天。不允许用「收到」。"
+    ACK_PROMPT = (
+        "你收到用户的消息。只输出一个简短确认词（≤5字），不要解释，不要重复用户的话。"
+        "像朋友聊天，不许用「收到」「好的」。"
+        "示例：用户说「帮我查配置」→「好」。用户说「柒月」→「在」。用户说「气死了」→「嗯，我看下」。"
+    )
 
     def __init__(self, bus, adapters, sessions, llm=None):
         self.bus = bus
