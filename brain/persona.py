@@ -26,11 +26,11 @@ def _load_markdown(filename: str) -> str:
         return path.read_text(encoding="utf-8")
     return ""
 
-# 启动时加载灵魂文件
+# 启动时加载灵魂文件（根目录）
 _INJECTED_SOUL = _load_markdown("../../SOUL.md")
-_INJECTED_MEMORY = _load_markdown("MEMORY.md")
-_INJECTED_RULES = _load_markdown("RULES.md")
-_INJECTED_USER = _load_markdown("USER.md")
+_INJECTED_MEMORY = _load_markdown("../../MEMORY.md")
+_INJECTED_RULES = _load_markdown("../../RULES.md")
+_INJECTED_USER = _load_markdown("../../USER.md")
 
 
 @dataclass

@@ -65,7 +65,7 @@ logger = logging.getLogger("qiyue")
 
 def load_config():
     """从 config.json 和环境变量加载配置"""
-    config_path = Path(__file__).parent / "config" / "config.json"
+    config_path = Path(__file__).parent / "config.json"
 
     llm_config = LLMConfig(
         api_key=os.getenv("DEEPSEEK_API_KEY", ""),

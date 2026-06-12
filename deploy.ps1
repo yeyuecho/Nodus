@@ -26,6 +26,8 @@ Invoke-Command -Session $session -ScriptBlock {
     @(
         "$root\brain\SOUL.md", "$root\brain\AGENTS.md",
         "$root\gateway\SOUL.md", "$root\gateway\AGENTS.md", "$root\gateway\USER.md",
+        "$root\data\memory\MEMORY.md", "$root\data\memory\RULES.md", "$root\data\memory\USER.md",
+        "$root\config\config.json",
         "$root\__pycache__", "$root\brain\__pycache__",
         "$root\gateway\__pycache__", "$root\shared\__pycache__"
     ) | ForEach-Object {

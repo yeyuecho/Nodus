@@ -102,7 +102,7 @@ def cmd_setup(args):
 def cmd_config(args):
     """配置管理"""
     env_path = PROJECT_ROOT / ".env"
-    config_path = PROJECT_ROOT / "config" / "config.json"
+    config_path = PROJECT_ROOT / "config.json"
 
     if args.show:
         print("=== .env ===")
@@ -119,7 +119,7 @@ def cmd_config(args):
         else:
             print("  (不存在)")
         print()
-        print("=== config/config.json ===")
+        print("=== config.json ===")
         if config_path.exists():
             import json
             cfg = json.loads(config_path.read_text(encoding="utf-8"))
@@ -195,7 +195,7 @@ def cmd_doctor(args):
             checks.append((f"  {desc} ({mod})", "缺失", False))
 
     # config.json
-    config_path = PROJECT_ROOT / "config" / "config.json"
+    config_path = PROJECT_ROOT / "config.json"
     checks.append(("config.json", "存在" if config_path.exists() else "缺失", config_path.exists()))
 
     # 目录结构
