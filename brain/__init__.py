@@ -513,17 +513,18 @@ class Brain:
         return defs
 
     def _parse_text_tool_calls(self, content: str) -> list:
-        """从 LLM 文本输出中解析 tool call（处理非标准格式）"""
+        """从 LLM 文本输出中解析 tool call"""
         import re
         calls = []
-        # 匹配 <function_calls>...<invoke name="xxx"><parameter name="yyy">zzz</parameter></invoke>...</function_calls>
-        for m in re.finditer(r'<invoke\s+name="(\w+)"[^>]*>(.*?)</invoke>', content, re.DOTALL):
+        # 匹配多种格式：<invoke name="xxx"> 或 <invoke name='xxx'> 或 <function_call>{"name":"xxx"}</function_call>
+        for m in re.finditer(r'<invoke\s+name\s*=\s*["\'](\w+)["\'][^>]*>(.*?)</invoke>', content, re.DOTALL):
             name = m.group(1)
             params_str = m.group(2)
             args = {}
-            for pm in re.finditer(r'<parameter\s+name="(\w+)"[^>]*>(.*?)</parameter>', params_str, re.DOTALL):
+            for pm in re.finditer(r'<parameter\s+name\s*=\s*["\'](\w+)["\'][^>]*>(.*?)</parameter>', params_str, re.DOTALL):
                 args[pm.group(1)] = pm.group(2).strip()
-            calls.append({"function": {"name": name, "arguments": json.dumps(args)}})
+            if args:
+                calls.append({"function": {"name": name, "arguments": json.dumps(args)}})
         return calls
 
     async def _reason_loop(self, msg: IncomingMessage,
@@ -583,6 +584,13 @@ class Brain:
                         tool_calls = self._parse_text_tool_calls(content)
                         if tool_calls:
                             logger.info(f"[_reason_loop] Parsed {len(tool_calls)} text-format tool calls")
+                        else:
+                            # 解析失败，去掉工具调用语法只返回人话部分
+                            import re
+                            clean = re.sub(r'<invoke[^>]*>.*?</invoke>', '', content, flags=re.DOTALL)
+                            clean = re.sub(r'<function_calls>.*?</function_calls>', '', clean, flags=re.DOTALL)
+                            clean = re.sub(r'<tool_calls>.*?</tool_calls>', '', clean, flags=re.DOTALL)
+                            return clean.strip() or "嗯？"
 
                 if not tool_calls:
                     return resp.get("content", "") or "嗯？"
