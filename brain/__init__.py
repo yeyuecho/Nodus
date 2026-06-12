@@ -680,7 +680,50 @@ class Brain:
                      context: list[dict] = None,
                      emotion: dict = None,
                      **kwargs):
-        """一次 LLM 调用，直接回复"""
+        """Hermes-style: tool calling + execute + iterate + respond."""
+        start = time.time()
+        sid = session_id or f"unified:{msg.channel_id}"
+
+        system = f"你是{self.persona.name}（Nodus）。项目路径: {PROJECT_ROOT}。用中文。"
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": msg.content}]
+        tool_defs = self._build_tool_defs()
+        response = None
+
+        for turn in range(5):
+            self._show_stage("planning" if turn == 0 else "executing")
+            try:
+                resp = await self.llm.chat_with_tools(messages, tool_defs)
+            except Exception as e:
+                response = f"出错了：{e}"; break
+
+            tool_calls = resp.get("tool_calls") or []
+            if not tool_calls:
+                response = resp.get("content", "") or "嗯"; break
+
+            messages.append({"role": "assistant", "content": resp.get("content") or None, "tool_calls": tool_calls})
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                name = fn.get("name", "")
+                args_str = fn.get("arguments", "{}")
+                try: args = json.loads(args_str) if isinstance(args_str, str) else args_str
+                except: args = {}
+                try:
+                    r = await asyncio.wait_for(self.executor.execute(name, args), timeout=10.0)
+                    out = json.dumps(r, ensure_ascii=False, default=str)[:3000]
+                except asyncio.TimeoutError: out = '{"error":"timeout"}'
+                except Exception as e: out = json.dumps({"error": str(e)})
+                messages.append({"role": "tool", "tool_call_id": tc.get("id", f"t{turn}"), "content": out})
+        else:
+            self._show_stage("replying")
+            messages.append({"role": "user", "content": "请总结以上信息回复用户。"})
+            try: response = await self.llm.chat(messages, temperature=0.7)
+            except: response = "处理完成"
+
+        self._clear_stage()
+        if response: self.memory.save_interaction(sid, msg.content, response)
+        elapsed = (time.time() - start) * 1000
+        logger.info(f"[{sid}] Done in {elapsed:.0f}ms")
+        self.bus.emit("response.ready", message_id=msg.id, content=response or "处理完成", session_id=sid, platform=msg.platform, channel_id=msg.channel_id, elapsed_ms=elapsed)
         start = time.time()
         sid = session_id or f"unified:{msg.channel_id}"
 
