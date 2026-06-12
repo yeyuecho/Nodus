@@ -515,10 +515,12 @@ class Brain:
         """
         try:
             # 列出可用工具，让 LLM 知道能干什么
+            root = str(Path(__file__).parent.parent)  # brain/ → 项目根
             tool_list = "\n".join(
                 f"  {name}: {desc}" for name, desc in self._available_tools.items()
             )
             system = f"""你是{self.persona.name}（Nodus），统一智能体。
+项目路径: {root}
 可用工具：
 {tool_list}
 
