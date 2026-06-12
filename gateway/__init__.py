@@ -115,6 +115,16 @@ class EmotionDetector:
         emotion = result["emotion"]
         return cls.ACK_BY_EMOTION.get(emotion, cls.ACK_BY_EMOTION["neutral"])
 
+    @classmethod
+    def should_ack(cls, text: str) -> bool:
+        """跳过不需要抢答的消息：问候、称呼、单字等 brain 能秒回的场景"""
+        stripped = text.strip()
+        if len(stripped) <= 3:
+            return False  # "柒月"、"在吗"、"嗯" — brain 自己回得快
+        if re.match(r"^(早|晚安|再见|拜拜|谢谢|嗯|哦|好|行|对|是|否)\b", stripped):
+            return False
+        return True
+
 
 class BaseAdapter:
     """平台适配器基类"""
@@ -168,22 +178,23 @@ class MessageRouter:
         sid = self._session_id(msg)
         glog = logging.getLogger("qiyue.gateway")
 
-        # 1. 情绪感知 + 秒回 ACK（微秒级，不等人）
+        # 1. 情绪感知 + 秒回 ACK（跳过短消息/问候，brain 自己回得快）
         emotion = EmotionDetector.detect(msg.content)
         glog.info(f"[{sid}] Emotion: {emotion['emotion']} ({emotion['confidence']:.2f})")
 
-        ack_text = EmotionDetector.pick_ack(msg.content)
-        ack = OutgoingMessage(
-            reply_to=msg.id,
-            content=ack_text,
-            content_type="text",
-            is_ack=True,
-            is_final=False,
-            metadata={"emotion": emotion["emotion"]},
-        )
-        adapter = self.adapters.get(msg.platform) or next(iter(self.adapters.values()), None)
-        if adapter:
-            await adapter.send(ack)
+        if EmotionDetector.should_ack(msg.content):
+            ack_text = EmotionDetector.pick_ack(msg.content)
+            ack = OutgoingMessage(
+                reply_to=msg.id,
+                content=ack_text,
+                content_type="text",
+                is_ack=True,
+                is_final=False,
+                metadata={"emotion": emotion["emotion"]},
+            )
+            adapter = self.adapters.get(msg.platform) or next(iter(self.adapters.values()), None)
+            if adapter:
+                await adapter.send(ack)
 
         # 2. 确保会话 + 追加用户消息
         self.sessions.create_session(sid)
