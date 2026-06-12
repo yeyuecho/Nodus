@@ -177,7 +177,21 @@ async def main():
     brain = Brain(llm, bus, sessions, executor=executor, memory=memory,
                   persona=DEFAULT_PERSONA)
     brain.register_skill_loader(executor.skills)
-    brain.register_tools(list(executor._handlers.keys()))
+    # 注册工具时带描述
+    tool_descriptions = {
+        "shell_exec": "执行 Shell 命令，参数: command(必填) — 如 systeminfo",
+        "file_read": "读取文件内容，参数: path(必填), offset, limit",
+        "file_write": "写入文件，参数: path(必填), content(必填)",
+        "file_patch": "修改文件中的指定文本，参数: path, old_string, new_string",
+        "file_search": "搜索文件内容，参数: pattern(必填), path, file_glob, limit",
+        "file_find": "按名称查找文件，参数: pattern(必填), path",
+        "browser_navigate": "浏览器打开网页，参数: url(必填)",
+        "browser_click": "浏览器点击元素，参数: selector(必填)",
+        "web_search": "网络搜索，参数: query(必填), max_results",
+        "web_fetch": "获取网页内容，参数: url(必填)",
+        "sandbox_exec": "在沙箱中执行 Python 脚本，参数: script(必填)",
+    }
+    brain.register_tools(tool_descriptions)
     logger.info(f"[Brain] {DEFAULT_PERSONA.name} 五大能力 ready (tools injected, persona active)")
 
     # 7. 定时调度

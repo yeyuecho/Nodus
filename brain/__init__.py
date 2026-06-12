@@ -132,7 +132,7 @@ class TaskPlanner:
 
     async def plan(self, intent: IntentResult, context: dict,
                    available_skills: list[str] = None,
-                   available_tools: list[str] = None) -> ExecutionPlan:
+                   available_tools: dict = None) -> ExecutionPlan:
         """制定执行计划"""
         task_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
@@ -144,12 +144,18 @@ class TaskPlanner:
                 action="llm_direct_reply",
             )
 
+        # 格式化工具列表为描述形式
+        if available_tools:
+            tools_str = "\n".join(f"  - {name}: {desc}" for name, desc in available_tools.items())
+        else:
+            tools_str = "无"
+
         prompt = self.PLANNING_PROMPT.format(
             intent=intent.intent,
             params=json.dumps(intent.parameters, ensure_ascii=False),
             confidence=intent.confidence,
             skills=", ".join(available_skills or ["无"]),
-            tools=", ".join(available_tools or ["无"]),
+            tools=tools_str,
         )
 
         try:
@@ -481,7 +487,7 @@ class Brain:
 
         # 可用技能列表 + 工具列表
         self._available_skills: list[str] = []
-        self._available_tools: list[str] = []
+        self._available_tools: dict = {}  # name -> description
 
     def register_skill_loader(self, skill_loader):
         """注入技能加载器（来自执行层）"""
@@ -489,8 +495,8 @@ class Brain:
         if skill_loader:
             self._available_skills = [s.slug for s in skill_loader.list_all()]
 
-    def register_tools(self, tools: list[str]):
-        """注册可用工具列表（注入到 LLM 推理上下文）"""
+    def register_tools(self, tools: dict):
+        """注册可用工具（name -> description）"""
         self._available_tools = tools
 
     async def handle(self, msg: IncomingMessage,

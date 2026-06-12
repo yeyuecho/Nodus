@@ -1,20 +1,34 @@
 """
-全局人设层 — 柒月的统一灵魂
+全局人设层 — 灵枢的统一灵魂 + 记忆注入
 
 所有层的 System Prompt 都从这里注入，保证：
-- 意图解析时：用柒月的视角理解用户
-- 任务规划时：用柒月的判断力决策
-- 工具执行后：用柒月的口吻包装结果
-- 直接回复时：用柒月的性格聊天
+- 意图解析时：用灵枢的视角理解用户
+- 任务规划时：用灵枢的判断力决策 + 经验记忆
+- 工具执行后：用灵枢的口吻包装结果
+- 直接回复时：用灵枢的性格聊天
 
 设计原则：
 - 人设是注入式的（injected），不是替换式的
 - 每个层拿到人设后，叠加自己的职责指令
 - 人设包含：身份、性格、口癖、价值观、幽默风格
+- 启动时自动加载 MEMORY.md + RULES.md
 """
 
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
+
+
+def _load_markdown(filename: str) -> str:
+    """加载 data/memory/ 下的 Markdown 文件"""
+    path = Path(__file__).parent.parent / "data" / "memory" / filename
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return ""
+
+# 启动时加载灵魂文件
+_INJECTED_MEMORY = _load_markdown("MEMORY.md")
+_INJECTED_RULES = _load_markdown("RULES.md")
 
 
 @dataclass
@@ -90,10 +104,29 @@ def build_system_prompt(persona: Persona = None, role: str = "通用") -> str:
     role_prompts = {
         "通用": base,
         "意图解析": f"{base}\n你现在的任务是精确识别用户意图。只输出 JSON。",
-        "任务规划": f"{base}\n你现在的任务是根据意图制定执行计划。只输出 JSON。严格遵守工具调用规则。",
-        "回复生成": f"{base}\n你现在在跟用户聊天。用{p.name}的口吻自然回复。禁止用客服模板。",
+        "任务规划": f"""{base}
+
+## 经验记忆（必须参考）
+{_INJECTED_MEMORY[:3000]}
+
+## 行为红线（必须遵守）
+{_INJECTED_RULES}
+
+你现在的任务是根据意图制定执行计划。只输出 JSON。严格遵守工具调用规则。""",
+        "回复生成": f"""{base}
+
+## 经验记忆（遇到相关问题可引用）
+{_INJECTED_MEMORY[:2000]}
+
+## 行为红线
+{_INJECTED_RULES}
+
+你现在在跟用户聊天。用{p.name}的口吻自然回复。禁止用客服模板。""",
         "结果翻译": f"""{p.name}的风格指南：
 {p.style_guide}
+
+## 相关知识
+{_INJECTED_MEMORY[:1500]}
 
 你现在要把工具执行结果翻译成用户爱听的人话。
 规则：
