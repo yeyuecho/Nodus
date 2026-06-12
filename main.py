@@ -1,10 +1,10 @@
 """
 柒月·合一 — 统一智能体入口
-     3|
+
 组装三层：gateway → brain → executor
 启动 Webhook + Cron
 """
-     7|
+
 import asyncio
 import json
 import logging
@@ -12,7 +12,7 @@ import os
 import sys
 import time
 from pathlib import Path
-    15|
+
 # 加载 .env 文件（如果存在）
 def _load_dotenv():
     env_path = Path(__file__).parent / ".env"
@@ -24,9 +24,9 @@ def _load_dotenv():
                 if key and not os.getenv(key):
                     os.environ[key] = val.strip()
 _load_dotenv()
-    27|
+
 sys.path.insert(0, str(Path(__file__).parent))
-    29|
+
 from shared.core import (
     EventBus, LLMClient, LLMConfig, OutgoingMessage, Platform,
 )
@@ -44,11 +44,11 @@ from executor.files import FileTools
 from data.session_store import SessionStore
 from data.memory_store import MemoryStore
 from brain.dream import DreamEngine, dream_task
-    47|
+
 # 日志：控制台只显示 WARNING 以上，详细信息写入文件
 log_dir = Path(__file__).parent / "logs"
 log_dir.mkdir(exist_ok=True)
-    51|
+
 logging.basicConfig(
     level=logging.WARNING,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -59,31 +59,31 @@ logging.basicConfig(
 )
 # 文件日志记录 INFO+
 logging.getLogger().handlers[1].setLevel(logging.INFO)
-    62|
+
 logger = logging.getLogger("qiyue")
-    64|
-    65|
+
+
 def load_config():
     """从 config.json 和环境变量加载配置"""
     config_path = Path(__file__).parent / "config" / "config.json"
-    69|
+
     llm_config = LLMConfig(
         api_key=os.getenv("DEEPSEEK_API_KEY", ""),
         model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro"),
     )
-    74|
+
     channel_config = {}
     if config_path.exists():
         with open(config_path) as f:
             raw = json.load(f)
-    79|
+
         providers = raw.get("providers", {})
         deepseek = providers.get("deepseek", {})
         if not llm_config.api_key:
             llm_config.api_key = deepseek.get("apiKey", "")
         if not llm_config.api_base:
             llm_config.api_base = deepseek.get("apiBase", "https://api.deepseek.com/v1")
-    86|
+
         channels = raw.get("channels", {})
         d = channels.get("dingtalk", {})
         w = channels.get("weixin", {})
@@ -95,22 +95,22 @@ def load_config():
             "feishu_app_id": os.getenv("FEISHU_APP_ID", f.get("appId", "")),
             "feishu_app_secret": os.getenv("FEISHU_APP_SECRET", f.get("appSecret", "")),
         }
-    98|
+
     llm_config.api_key = llm_config.api_key or os.getenv("DEEPSEEK_API_KEY", "")
     llm_config.model = os.getenv("DEEPSEEK_MODEL", llm_config.model)
     return llm_config, channel_config
-   102|
-   103|
+
+
 async def main():
     logger.info("=" * 50)
     logger.info("柒月·合一 启动中...")
     logger.info("=" * 50)
-   108|
+
     # 1. 配置
     llm_config, channel_config = load_config()
     if not llm_config.api_key:
         logger.warning("⚠️  DEEPSEEK_API_KEY 未设置！用 export 设置后重启。")
-   113|
+
     # 2. 基础设施
     bus = EventBus()
     llm = LLMClient(llm_config)
@@ -118,12 +118,12 @@ async def main():
     memory = MemoryStore("data/memory/MEMORY.md")
     dream = DreamEngine(sessions, llm, "data/memory/MEMORY.md")
     logger.info("[Init] EventBus + LLMClient + SessionStore + MemoryStore + Dream OK")
-   121|
+
     # 3. 执行层 + 工具
     executor = Executor(skills_dir="skills", browser_headless=True)
     shell = ShellExecutor(timeout=60)
     files = FileTools()
-   126|
+
     # 注册更多工具到 executor
     executor._handlers = {
         "shell_exec": lambda p: shell.execute(p["command"]),
@@ -138,14 +138,14 @@ async def main():
         "web_fetch": lambda p: executor.search.fetch_text(p["url"]),
         "sandbox_exec": lambda p: executor.sandbox.execute_script(p["script"]),
     }
-   141|
+
     logger.info(f"[Executor] {len(executor._handlers)} tools registered")
     logger.info(f"[Executor] {len(executor.skills.list_all())} skills loaded")
-   144|
+
     # 4. 网关层 — 根据模式选择适配器
     import sys
     is_serve = len(sys.argv) > 1 and sys.argv[1] == "--serve"
-   148|
+
     if is_serve:
         # 服务模式：连接真实平台
         adapters = []
@@ -160,10 +160,10 @@ async def main():
         # 测试模式：仅控制台输出
         adapters = [ConsoleAdapter()]
         logger.info("[Gateway] Console-only mode (use --serve for real platforms)")
-   163|
+
     gateway = MessageRouter(bus, adapters, sessions)
     logger.info(f"[Gateway] {len(adapters)} adapters loaded")
-   166|
+
     # 5. Webhook 服务器（仅服务模式）
     if is_serve:
         async def on_webhook_message(msg):
@@ -172,14 +172,14 @@ async def main():
         await webhook.start()
     else:
         webhook = None
-   175|
+
     # 6. 思维层 — 注入统一人设
     brain = Brain(llm, bus, sessions, executor=executor, memory=memory,
                   persona=DEFAULT_PERSONA)
     brain.register_skill_loader(executor.skills)
     brain.register_tools(list(executor._handlers.keys()))
     logger.info(f"[Brain] {DEFAULT_PERSONA.name} 五大能力 ready (tools injected, persona active)")
-   182|
+
     # 7. 定时调度
     cron = CronScheduler()
     cron.add("heartbeat", lambda: heartbeat_task(sessions, gateway), interval_s=1800)
@@ -187,10 +187,10 @@ async def main():
     cron.add("dream", lambda: dream_task(dream), interval_s=7200)  # 每 2 小时
     await cron.start()
     logger.info(f"[Cron] {len(cron._jobs)} jobs registered (heartbeat + compact + dream)")
-   190|
+
     # 8. 事件连线
     bus.on("message.received", brain.handle)
-   193|
+
     async def on_response_ready(message_id, content, session_id=None,
                                 platform=None, channel_id=None, **kwargs):
         await gateway.deliver(OutgoingMessage(
@@ -199,9 +199,9 @@ async def main():
             platform=platform,
             channel_id=channel_id,
         ))
-   202|
+
     bus.on("response.ready", on_response_ready)
-   204|
+
     logger.info("=" * 50)
     logger.info("✅ 柒月·合一 已就绪")
     logger.info(f"   Webhook: http://0.0.0.0:18791")
@@ -211,7 +211,7 @@ async def main():
     logger.info(f"   Executor: {len(executor._handlers)} 工具 + {len(executor.skills.list_all())} 技能")
     logger.info(f"   Cron: {len(cron._jobs)} jobs")
     logger.info("=" * 50)
-   214|
+
     # 6. CLI 交互测试模式
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "--serve":
@@ -246,7 +246,7 @@ async def main():
                 await gateway.route(test_msg)
             except (KeyboardInterrupt, EOFError):
                 break
-   249|
+
     # 10. 关闭
     logger.info("Shutting down...")
     await cron.stop()
@@ -260,8 +260,7 @@ async def main():
     await executor.close()
     sessions.close()
     logger.info("Goodbye.")
-   263|
-   264|
+
+
 if __name__ == "__main__":
     asyncio.run(main())
-   267|
