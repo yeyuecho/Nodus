@@ -36,7 +36,7 @@ class MessageRouter:
     """消息路由 — LLM 生成 ACK + 会话管理 + 转发 brain"""
 
     SESSION_PREFIX = "unified:"
-    ACK_PROMPT = "你是柒月，用户的私人智能管家。回复用户。"
+    ACK_PROMPT = "你是柒月，用户的私人智能管家。做简短口头确认。回复用户。"
 
     def __init__(self, bus, adapters, sessions, llm=None):
         self.bus = bus
@@ -71,7 +71,11 @@ class MessageRouter:
             msgs = [{"role": "system", "content": self.ACK_PROMPT}]
             if recent:
                 for m in recent:
-                    msgs.append({"role": m["role"], "content": m["content"][:200]})
+                    if m.get("role") == "tool":
+                        continue  # 不喂工具结果，避免 ACK 模仿 tool_calls
+                    content = m.get("content", "")
+                    if isinstance(content, str) and content:
+                        msgs.append({"role": m["role"], "content": content[:200]})
             msgs.append({"role": "user", "content": msg.content})
             text = await self.llm.chat(msgs)
             dt = (time.time() - t0) * 1000
