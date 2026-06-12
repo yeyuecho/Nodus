@@ -23,6 +23,12 @@ from brain.persona import (
     Persona, DEFAULT_PERSONA, build_system_prompt, get_emotion_strategy,
     _INJECTED_SOUL, _INJECTED_MEMORY,
 )
+from config.defaults import (
+    ROOT as PROJECT_ROOT,
+    CORE_FILES,
+    TOOL_DESCRIPTIONS,
+    SYSTEM_PROMPT_TEMPLATE,
+)
 
 logger = logging.getLogger("qiyue.brain")
 
@@ -514,19 +520,15 @@ class Brain:
         工具调用 → 汇总回复（最多2轮）
         """
         try:
-            # 列出可用工具，让 LLM 知道能干什么
-            root = str(Path(__file__).parent.parent)  # brain/ → 项目根
-            tool_list = "\n".join(
-                f"  {name}: {desc}" for name, desc in self._available_tools.items()
+            # 用预构建模板生成 system prompt（含路径、工具、核心文件）
+            system = SYSTEM_PROMPT_TEMPLATE.format(
+                name=self.persona.name,
+                root=str(PROJECT_ROOT),
+                core_files=", ".join(CORE_FILES.keys()),
+                tools="\n".join(f"  {k}: {v}" for k, v in TOOL_DESCRIPTIONS.items()),
+                soul=_INJECTED_SOUL[:300] or "",
+                memory=_INJECTED_MEMORY[:300] or "",
             )
-            system = f"""你是{self.persona.name}（Nodus），统一智能体。
-项目路径: {root}
-可用工具：
-{tool_list}
-
-规则：调一次工具，看到结果后直接回复。用自然中文。"""
-            if _INJECTED_SOUL:
-                system += f"\n{_INJECTED_SOUL[:400]}"
 
             context_str = ""
             if context:
