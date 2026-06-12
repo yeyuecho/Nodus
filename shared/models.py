@@ -33,6 +33,7 @@ class ChatResponse:
     content: str
     model: str
     usage: dict     # {prompt_tokens, completion_tokens, total_tokens}
+    tool_calls: list = None  # [{id, type, function: {name, arguments}}]
 
 
 class ModelAdapter:
@@ -58,6 +59,8 @@ class ModelAdapter:
         max_tokens: int = None,
         temperature: float = None,
         json_mode: bool = False,
+        tools: list[dict] = None,
+        tool_choice: str = None,
     ) -> ChatResponse:
         """发送对话请求"""
         kwargs = {
@@ -69,11 +72,15 @@ class ModelAdapter:
 
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
+        if tools:
+            kwargs["tools"] = tools
+        if tool_choice:
+            kwargs["tool_choice"] = tool_choice
 
         resp = await self.client.chat.completions.create(**kwargs)
 
         choice = resp.choices[0]
-        return ChatResponse(
+        response = ChatResponse(
             content=choice.message.content or "",
             model=resp.model,
             usage={
@@ -82,6 +89,22 @@ class ModelAdapter:
                 "total_tokens": resp.usage.total_tokens if resp.usage else 0,
             },
         )
+
+        # 附加 tool_calls（如果有）
+        if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
+            response.tool_calls = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in choice.message.tool_calls
+            ]
+
+        return response
 
     async def chat_json(
         self,

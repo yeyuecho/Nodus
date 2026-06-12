@@ -353,7 +353,7 @@ class LLMClient:
         self._call_count += 1
         return {
             "content": resp.content or "",
-            "tool_calls": getattr(resp, "tool_calls", []),
+            "tool_calls": resp.tool_calls or [],
         }
 
     # ─── 多 Provider 切换 ───
