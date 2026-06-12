@@ -7,9 +7,14 @@
 
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.core import IncomingMessage, OutgoingMessage, Platform, EventBus
 from data.session_store import SessionStore
+from brain.persona import DEFAULT_PERSONA, build_system_prompt
 
 logger = logging.getLogger("qiyue.gateway")
 
@@ -36,7 +41,6 @@ class MessageRouter:
     """消息路由 — LLM 生成 ACK + 会话管理 + 转发 brain"""
 
     SESSION_PREFIX = "unified:"
-    ACK_PROMPT = "你是柒月，用户的私人智能管家。做简短口头确认。回复用户。"
 
     def __init__(self, bus, adapters, sessions, llm=None):
         self.bus = bus
@@ -70,7 +74,7 @@ class MessageRouter:
         logger.info(f"[ACK] start: '{msg.content[:30]}'")
         try:
             import time; t0 = time.time()
-            msgs = [{"role": "system", "content": self.ACK_PROMPT}]
+            msgs = [{"role": "system", "content": build_system_prompt(DEFAULT_PERSONA)}]
             if recent:
                 for m in recent:
                     if m.get("role") == "tool":
