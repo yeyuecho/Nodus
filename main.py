@@ -161,7 +161,7 @@ async def main():
         adapters = [ConsoleAdapter()]
         logger.info("[Gateway] Console-only mode (use --serve for real platforms)")
 
-    gateway = MessageRouter(bus, adapters, sessions)
+    gateway = MessageRouter(bus, adapters, sessions, llm=llm)
     logger.info(f"[Gateway] {len(adapters)} adapters loaded")
 
     # 5. Webhook 服务器（仅服务模式）
