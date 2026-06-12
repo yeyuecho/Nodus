@@ -36,10 +36,7 @@ class MessageRouter:
     """消息路由 — LLM 生成 ACK + 会话管理 + 转发 brain"""
 
     SESSION_PREFIX = "unified:"
-    ACK_PROMPT = (
-        "你是柒月，用户的私人智能管家。细心、温暖、靠谱、幽默。"
-        "说话自然口语化，像朋友，句尾偶尔加「~」。做简短口头确认。回复用户。"
-    )
+    ACK_PROMPT = "你是柒月，用户的私人智能管家。做简短口头确认。回复用户。"
 
     def __init__(self, bus, adapters, sessions, llm=None):
         self.bus = bus
