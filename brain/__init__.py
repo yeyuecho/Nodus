@@ -8,6 +8,7 @@
 import asyncio
 import json
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -28,7 +29,7 @@ logger = logging.getLogger("qiyue.brain")
 class Brain:
     """思维中枢 — Hermes 式单循环 tool calling"""
 
-    MAX_ITERATIONS = 10  # Nodus 单次对话最多 10 轮工具调用
+    MAX_ITERATIONS = 10
 
     def __init__(self, llm: LLMClient, bus: EventBus,
                  sessions: SessionStore = None,
@@ -39,19 +40,17 @@ class Brain:
         self.bus = bus
         self.sessions = sessions or SessionStore()
         self.executor = executor
-        self.memory = memory  # MemoryStore (持久记忆，备用)
+        self.memory = memory
         self.persona = persona or DEFAULT_PERSONA
 
         self._available_skills: list[str] = []
-        self._available_tools: dict = {}  # name -> description
+        self._available_tools: dict = {}
 
     def register_skill_loader(self, skill_loader):
-        """注入技能加载器（接口兼容）"""
         if skill_loader:
             self._available_skills = [s.slug for s in skill_loader.list_all()]
 
     def register_tools(self, tools: dict):
-        """注册可用工具 (name -> description)"""
         self._available_tools = tools
 
     async def handle(self, msg: IncomingMessage,
@@ -59,14 +58,6 @@ class Brain:
                      context: list[dict] = None,
                      emotion: dict = None,
                      **kwargs):
-        """
-        处理一条用户消息。
-
-        1. 构建 system prompt（persona + 工具 + 核心文件 + 红线）
-        2. 启动 tool calling 循环
-        3. LLM 自己决定何时调工具、何时回复
-        4. 保存会话 + 推送回复
-        """
         start = time.time()
         sid = session_id or f"unified:{msg.channel_id}"
         emotion_tag = (emotion or {}).get("emotion", "neutral")
@@ -81,8 +72,6 @@ class Brain:
             f"- {name}: {desc}" for name, desc in self._available_tools.items()
         ) if self._available_tools else "(无)"
 
-        skills_str = ", ".join(self._available_skills) if self._available_skills else "(无)"
-
         emotion_guide = get_emotion_strategy(self.persona, emotion_tag)
 
         system_prompt = f"""{persona_prompt}
@@ -95,9 +84,6 @@ class Brain:
 
 ## 可用工具
 {tools_str}
-
-## 已加载技能
-{skills_str}
 
 ## 行为规范
 - 需要获取信息时调用工具，禁止编造数据
@@ -115,14 +101,12 @@ class Brain:
         # ── 2. 构建消息列表 ──
         api_messages = [{"role": "system", "content": system_prompt}]
 
-        # 注入上下文
         if context:
             for m in context[-12:]:
                 role = m.get("role", "user")
                 content = m.get("content", "")[:500]
                 api_messages.append({"role": role, "content": content})
 
-        # 注入持久记忆（如果有 MemoryStore）
         if self.memory and hasattr(self.memory, 'content'):
             mem_content = getattr(self.memory, 'content', '')
             if mem_content:
@@ -131,21 +115,16 @@ class Brain:
                     "content": f"## 长期记忆\n{mem_content[:3000]}"
                 })
 
-        # 用户消息
         api_messages.append({"role": "user", "content": msg.content})
 
-        # ── 3. 构建 OpenAI 工具格式 ──
+        # ── 3. 构建工具格式 ──
         openai_tools = [
             {
                 "type": "function",
                 "function": {
                     "name": name,
                     "description": desc,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                    },
+                    "parameters": {"type": "object", "properties": {}, "required": []},
                 },
             }
             for name, desc in self._available_tools.items()
@@ -156,26 +135,24 @@ class Brain:
         for iteration in range(self.MAX_ITERATIONS):
             try:
                 resp = await self.llm.chat_with_tools(
-                    api_messages,
-                    tools=openai_tools,
-                    temperature=0.7,
-                )
+                    api_messages, tools=openai_tools, temperature=0.7)
             except Exception as e:
-                logger.error(f"[Brain] LLM call failed (iteration {iteration}): {e}")
+                logger.error(f"[Brain] LLM failed (iter {iteration}): {e}")
                 final_response = "抱歉，我暂时无法处理这个消息，稍后再试？"
                 break
 
             tool_calls = resp.get("tool_calls") or []
             content = resp.get("content") or ""
 
-            # 没有工具调用 → 最终回复
             if not tool_calls:
                 final_response = content or "好的~"
                 break
 
-            # 有工具调用 → 进度提示 + 追加 assistant 消息
+            # ── 覆盖式进度（\r 原地刷新，不滚屏）──
             tool_names = [tc.get("function", {}).get("name", "?") for tc in tool_calls]
-            print(f"\n  🔧 {', '.join(tool_names)}...")
+            results = []
+            sys.stdout.write(f"\r  🔧 {', '.join(tool_names)}...")
+            sys.stdout.flush()
 
             api_messages.append({
                 "role": "assistant",
@@ -183,7 +160,6 @@ class Brain:
                 "tool_calls": tool_calls,
             })
 
-            # 执行工具
             for tc in tool_calls:
                 fn = tc.get("function", {})
                 tool_name = fn.get("name", "")
@@ -203,13 +179,15 @@ class Brain:
                     tool_output = "错误: 无执行层"
                 dt = (time.time() - t0) * 1000
 
-                # 进度：工具执行耗时
                 if dt < 1000:
-                    print(f"    ✓ {tool_name} ({dt:.0f}ms)")
+                    results.append(f"{tool_name} ({dt:.0f}ms)")
                 else:
-                    print(f"    ✓ {tool_name} ({dt/1000:.1f}s)")
+                    results.append(f"{tool_name} ({dt/1000:.1f}s)")
 
-                # 截断过长的工具输出
+                # 覆盖刷新
+                sys.stdout.write(f"\r  ✓ {' | '.join(results)}")
+                sys.stdout.flush()
+
                 if len(tool_output) > 8000:
                     tool_output = tool_output[:8000] + "\n...(内容已截断)"
 
@@ -219,9 +197,12 @@ class Brain:
                     "content": tool_output,
                 })
 
+            # 本批完成，换行
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+
         else:
-            # 达到最大迭代次数 → 强制让 LLM 总结
-            logger.warning(f"[Brain] Max iterations ({self.MAX_ITERATIONS}) reached, forcing summary")
+            logger.warning(f"[Brain] Max iterations ({self.MAX_ITERATIONS}) reached")
             try:
                 api_messages.append({
                     "role": "user",
@@ -240,7 +221,7 @@ class Brain:
 
         # ── 6. 推送回复 ──
         elapsed = (time.time() - start) * 1000
-        logger.info(f"[{sid}] Done in {elapsed:.0f}ms, {len(api_messages)} messages")
+        logger.info(f"[{sid}] Done in {elapsed:.0f}ms")
 
         self.bus.emit("response.ready",
                        message_id=msg.id,
