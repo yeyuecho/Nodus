@@ -516,12 +516,20 @@ class Brain:
         """从 LLM 文本输出中解析 tool call"""
         import re
         calls = []
-        # 匹配多种格式：<invoke name="xxx"> 或 <invoke name='xxx'> 或 <function_call>{"name":"xxx"}</function_call>
-        for m in re.finditer(r'<invoke\s+name\s*=\s*["\'](\w+)["\'][^>]*>(.*?)</invoke>', content, re.DOTALL):
+        # <invoke name="xxx">...<parameter name="yyy">zzz</parameter>...</invoke>
+        invoke_re = re.compile(
+            r'<invoke\s+name\s*=\s*"(\w+)"[^>]*>(.*?)</invoke>',
+            re.DOTALL,
+        )
+        param_re = re.compile(
+            r'<parameter\s+name\s*=\s*"(\w+)"[^>]*>(.*?)</parameter>',
+            re.DOTALL,
+        )
+        for m in invoke_re.finditer(content):
             name = m.group(1)
             params_str = m.group(2)
             args = {}
-            for pm in re.finditer(r'<parameter\s+name\s*=\s*["\'](\w+)["\'][^>]*>(.*?)</parameter>', params_str, re.DOTALL):
+            for pm in param_re.finditer(params_str):
                 args[pm.group(1)] = pm.group(2).strip()
             if args:
                 calls.append({"function": {"name": name, "arguments": json.dumps(args)}})
