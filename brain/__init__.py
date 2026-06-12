@@ -512,6 +512,20 @@ class Brain:
                 })
         return defs
 
+    def _parse_text_tool_calls(self, content: str) -> list:
+        """从 LLM 文本输出中解析 tool call（处理非标准格式）"""
+        import re
+        calls = []
+        # 匹配 <function_calls>...<invoke name="xxx"><parameter name="yyy">zzz</parameter></invoke>...</function_calls>
+        for m in re.finditer(r'<invoke\s+name="(\w+)"[^>]*>(.*?)</invoke>', content, re.DOTALL):
+            name = m.group(1)
+            params_str = m.group(2)
+            args = {}
+            for pm in re.finditer(r'<parameter\s+name="(\w+)"[^>]*>(.*?)</parameter>', params_str, re.DOTALL):
+                args[pm.group(1)] = pm.group(2).strip()
+            calls.append({"function": {"name": name, "arguments": json.dumps(args)}})
+        return calls
+
     async def _reason_loop(self, msg: IncomingMessage,
                            context: list[dict],
                            emotion_tag: str,
@@ -561,18 +575,25 @@ class Brain:
                     return f"出错了：{e}"
 
                 tool_calls = resp.get("tool_calls", [])
+
+                # 如果原生 tool_calls 为空，尝试从文本中解析
+                if not tool_calls:
+                    content = resp.get("content", "")
+                    if "<function_calls>" in content or "<invoke" in content:
+                        tool_calls = self._parse_text_tool_calls(content)
+
                 if not tool_calls:
                     return resp.get("content", "") or "嗯？"
 
                 # 只执行第一个工具调用
                 tc = tool_calls[0]
-                func = tc.get("function", {})
-                name = func.get("name", "unknown")
-                args_str = func.get("arguments", "{}")
-                try:
-                    args = json.loads(args_str) if isinstance(args_str, str) else args_str
-                except json.JSONDecodeError:
-                    args = {}
+                name = tc.get("function", {}).get("name", tc.get("name", "unknown"))
+                args = tc.get("function", {}).get("arguments", tc.get("params", tc.get("args", {})))
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except json.JSONDecodeError:
+                        args = {}
 
                 try:
                     result = await asyncio.wait_for(
