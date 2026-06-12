@@ -45,12 +45,12 @@ class EmotionDetector:
 
     # 按情绪的 ACK（不猜测任务内容，只回应情绪状态）
     ACK_BY_EMOTION = {
-        "angry": "嗯，我来看看怎么回事",
-        "frustrated": "好的，我来处理",
-        "urgent": "马上！",
-        "happy": "来啦~",
-        "sad": "在呢",
-        "neutral": "收到~",
+        "angry": "嗯，我看下",
+        "frustrated": "好，我看看",
+        "urgent": "来了",
+        "happy": "嘿嘿~",
+        "sad": "嗯，在",
+        "neutral": "嗯",
     }
 
     @classmethod
@@ -130,20 +130,29 @@ class MessageRouter:
     async def route(self, msg: IncomingMessage):
         """
         收到消息 → 完整流程:
-        1. 情绪感知
-        2. 确保会话存在 + 追加用户消息 + 读取上下文
+        1. 情绪感知 → 按情绪秒回 ACK（微秒级）
+        2. 确保会话 + 追加用户消息 + 读取上下文
         3. 转发给思维层
-
-        没有 ACK。Hermes 也没有——LLM 回复的第一句话就是确认，
-        工具进度行（🔧 ... ✓ ...）就是「在干活了」的信号。
-        抢答一句本身就是机械的，跟换什么词无关。
         """
         sid = self._session_id(msg)
         glog = logging.getLogger("qiyue.gateway")
 
-        # 1. 情绪感知（微秒级）
+        # 1. 情绪感知 + 秒回 ACK
         emotion = EmotionDetector.detect(msg.content)
         glog.info(f"[{sid}] Emotion: {emotion['emotion']} ({emotion['confidence']:.2f})")
+
+        ack_text = EmotionDetector.pick_ack(msg.content)
+        ack = OutgoingMessage(
+            reply_to=msg.id,
+            content=ack_text,
+            content_type="text",
+            is_ack=True,
+            is_final=False,
+            metadata={"emotion": emotion["emotion"]},
+        )
+        adapter = self.adapters.get(msg.platform) or next(iter(self.adapters.values()), None)
+        if adapter:
+            await adapter.send(ack)
 
         # 2. 确保会话 + 追加用户消息
         self.sessions.create_session(sid)
