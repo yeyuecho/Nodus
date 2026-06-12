@@ -1,0 +1,29 @@
+# 灵枢 Nodus
+
+# 密钥
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# 日志
+logs/
+
+# 数据（运行时生成）
+data/sessions/
+data/memory/MEMORY.md
+data/memory/user_preferences.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统
+Thumbs.db
+.DS_Store
