@@ -20,15 +20,16 @@ $ErrorActionPreference = "Stop"
 $cred = New-Object System.Management.Automation.PSCredential($VMUser, (ConvertTo-SecureString $VMPass -AsPlainText -Force))
 $session = New-PSSession -VMName $VMName -Credential $cred
 
-# 清理 VM 上可能存在的脑文件扁平化残留
+# 清理 VM 上可能存在的旧文件
 Invoke-Command -Session $session -ScriptBlock {
     param($root)
-    # 清理散落在根目录的 brain 文件
-    @('__init__.py', 'cron.py', 'dream.py', 'llm_loop.py', 'planning.py', 'SOUL.md', 'AGENTS.md') | ForEach-Object {
-        Remove-Item "$root\$_" -ErrorAction SilentlyContinue
-    }
-    @('prompts', '__pycache__') | ForEach-Object {
-        Remove-Item "$root\$_" -Recurse -Force -ErrorAction SilentlyContinue
+    @(
+        "$root\brain\SOUL.md", "$root\brain\AGENTS.md",
+        "$root\gateway\SOUL.md", "$root\gateway\AGENTS.md", "$root\gateway\USER.md",
+        "$root\__pycache__", "$root\brain\__pycache__",
+        "$root\gateway\__pycache__", "$root\shared\__pycache__"
+    ) | ForEach-Object {
+        Remove-Item $_ -Recurse -Force -ErrorAction SilentlyContinue
     }
 } -ArgumentList $DestPath
 
