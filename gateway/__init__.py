@@ -52,15 +52,17 @@ class MessageRouter:
         sid = self._session_id(msg)
         self.sessions.create_session(sid)
 
-        # ACK: LLM 生成（带短期记忆），fire-and-forget
-        recent = self.sessions.get_context(sid, limit=6)
-        asyncio.create_task(self._ack(msg, recent))
+        # 取一次上下文，ACK 和 brain 共享
+        ctx = self.sessions.get_context(sid)
 
-        # 追加消息 + 转发 brain
+        # ACK: LLM 生成（用同一份上下文），fire-and-forget
+        asyncio.create_task(self._ack(msg, ctx))
+
+        # 追加消息 + 转发 brain（同一份上下文）
         self.sessions.append_message(sid, "user", msg.content)
         self.bus.emit("message.received",
                        msg=msg, session_id=sid,
-                       context=self.sessions.get_context(sid))
+                       context=ctx)
 
     async def _ack(self, msg, recent=None):
         if not self.llm:
