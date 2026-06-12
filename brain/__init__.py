@@ -509,34 +509,27 @@ class Brain:
     async def _reason_loop(self, msg: IncomingMessage,
                            context: list[dict],
                            emotion_tag: str,
-                           max_turns: int = 3) -> str:
+                           max_turns: int = 2) -> str:
         """
-        LLM 收到消息 → 调用工具 → 看到结果 → 回复（最多 3 轮）
+        一轮工具调用 → 直接回复
         """
         try:
-            # 构建精简 system prompt（不注入全量记忆，保持快速）
-            system = f"""你是{self.persona.name}（Nodus），一个统一智能体。
-工具调用后直接回复用户，不要反复调用。一轮搞定。用中文。"""
+            system = f"""你是{self.persona.name}（Nodus）。
+调用工具获取信息，然后立即用自然中文回复用户。只能调用一次工具。"""
 
-            # 注入核心规范（精简版）
             if _INJECTED_SOUL:
-                system += f"\n\n{_INJECTED_SOUL[:800]}"
+                system += f"\n{_INJECTED_SOUL[:500]}"
 
-            # 注入关键记忆（精简版）
-            if _INJECTED_MEMORY:
-                system += f"\n\n{_INJECTED_MEMORY[:1000]}"
-
-            # 构建消息
             context_str = ""
             if context:
-                recent = context[-6:]
-                context_str = "最近对话:\n" + "\n".join(
-                    f"[{m['role']}]: {m['content'][:200]}" for m in recent
+                recent = context[-4:]
+                context_str = "最近:\n" + "\n".join(
+                    f"[{m['role']}]: {m['content'][:150]}" for m in recent
                 )
 
             user_content = msg.content
             if context_str:
-                user_content = f"{context_str}\n\n用户说: {msg.content}"
+                user_content = f"{context_str}\n\n用户: {msg.content}"
 
             messages = [
                 {"role": "system", "content": system},
@@ -544,7 +537,6 @@ class Brain:
             ]
 
             tool_defs = self._build_tool_defs()
-            logger.info(f"[_reason_loop] {len(tool_defs)} tools, msg='{msg.content[:50]}'")
 
             for turn in range(max_turns):
                 self._show_stage("planning" if turn == 0 else "executing")
@@ -552,65 +544,53 @@ class Brain:
                 try:
                     resp = await self.llm.chat_with_tools(
                         messages, tool_defs,
-                        temperature=0.5 if turn == 0 else 0.3,
+                        temperature=0.5,
                     )
                 except Exception as e:
-                    logger.error(f"[_reason_loop] LLM error turn {turn}: {e}")
-                    self._show_stage("replying")
-                    return f"抱歉，思考过程中遇到了问题：{e}"
+                    logger.error(f"[_reason_loop] LLM error: {e}")
+                    return f"出错了：{e}"
 
                 tool_calls = resp.get("tool_calls", [])
                 if not tool_calls:
-                    self._show_stage("replying")
-                    return resp.get("content", "") or "嗯，我在呢~"
+                    return resp.get("content", "") or "嗯？"
 
-                # 有 tool calls → 执行
-                assistant_msg = {"role": "assistant", "content": resp.get("content") or ""}
-                assistant_msg["tool_calls"] = tool_calls
-                messages.append(assistant_msg)
+                # 只执行第一个工具调用
+                tc = tool_calls[0]
+                func = tc.get("function", {})
+                name = func.get("name", "unknown")
+                args_str = func.get("arguments", "{}")
+                try:
+                    args = json.loads(args_str) if isinstance(args_str, str) else args_str
+                except json.JSONDecodeError:
+                    args = {}
 
-                for tc in tool_calls:
-                    func = tc.get("function", {})
-                    name = func.get("name", "unknown")
-                    args_str = func.get("arguments", "{}")
-                    try:
-                        args = json.loads(args_str) if isinstance(args_str, str) else args_str
-                    except json.JSONDecodeError:
-                        args = {}
+                try:
+                    result = await asyncio.wait_for(
+                        self.executor.execute(name, args), timeout=10.0,
+                    )
+                    output = json.dumps(result, ensure_ascii=False, default=str)[:2000]
+                except asyncio.TimeoutError:
+                    output = json.dumps({"error": "timeout"})
+                except Exception as e:
+                    output = json.dumps({"error": str(e)})
 
-                    logger.info(f"[_reason_loop] T{turn+1}: {name}")
+                # 追加结果并强制 LLM 总结
+                messages.append({"role": "assistant", "content": "", "tool_calls": [tc]})
+                messages.append({"role": "tool", "tool_call_id": tc.get("id", "t0"), "content": output})
+                messages.append({"role": "user", "content": "请基于以上结果，用自然中文回复用户。不要继续调用工具。"})
 
-                    try:
-                        result = await asyncio.wait_for(
-                            self.executor.execute(name, args),
-                            timeout=10.0,
-                        )
-                        output = json.dumps(result, ensure_ascii=False, default=str)[:2000]
-                    except asyncio.TimeoutError:
-                        output = json.dumps({"error": "Tool execution timed out (10s)"})
-                        logger.error(f"[_reason_loop] Tool {name} timed out")
-                    except Exception as e:
-                        output = json.dumps({"error": str(e)})
-                        logger.error(f"[_reason_loop] Tool {name} failed: {e}")
+                self._show_stage("replying")
+                try:
+                    final = await self.llm.chat(messages, temperature=0.7)
+                    return final or "处理完成~"
+                except Exception:
+                    return "处理超时，请重试~"
 
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.get("id", f"call_{turn}"),
-                        "content": output,
-                    })
-
-            # 超出轮次，要求 LLM 总结
-            self._show_stage("replying")
-            messages.append({"role": "user", "content": "请基于以上信息，用自然语言回复用户。"})
-            try:
-                final = await self.llm.chat(messages, temperature=0.7)
-                return final or "处理完成~"
-            except Exception:
-                return "抱歉，处理超时了，请再说一次~"
+            return "处理完成~"
 
         except Exception as e:
-            logger.error(f"[_reason_loop] Fatal: {e}", exc_info=True)
-            return f"出了点小问题：{e}"
+            logger.error(f"[_reason_loop] Fatal: {e}")
+            return f"出错了：{e}"
 
 
     def __init__(self, llm: LLMClient, bus: EventBus,
