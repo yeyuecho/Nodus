@@ -130,38 +130,27 @@ class MessageRouter:
     async def route(self, msg: IncomingMessage):
         """
         收到消息 → 完整流程:
-        1. 情绪感知 → 按情绪选 ACK（微秒级，不调 LLM）
-        2. 秒回 ACK（有温度的，随情绪变化）
-        3. 追加用户消息 + 读取上下文
-        4. 转发给思维层
+        1. 情绪感知
+        2. 确保会话存在 + 追加用户消息 + 读取上下文
+        3. 转发给思维层
+
+        没有 ACK。Hermes 也没有——LLM 回复的第一句话就是确认，
+        工具进度行（🔧 ... ✓ ...）就是「在干活了」的信号。
+        抢答一句本身就是机械的，跟换什么词无关。
         """
         sid = self._session_id(msg)
         glog = logging.getLogger("qiyue.gateway")
 
-        # 1. 情绪感知（微秒级，不等 LLM）
+        # 1. 情绪感知（微秒级）
         emotion = EmotionDetector.detect(msg.content)
         glog.info(f"[{sid}] Emotion: {emotion['emotion']} ({emotion['confidence']:.2f})")
 
-        # 2. 秒回 ACK（按情绪，6 种变化，不机械）
-        ack_text = EmotionDetector.pick_ack(msg.content)
-        ack = OutgoingMessage(
-            reply_to=msg.id,
-            content=ack_text,
-            content_type="text",
-            is_ack=True,
-            is_final=False,
-            metadata={"emotion": emotion["emotion"]},
-        )
-        adapter = self.adapters.get(msg.platform) or next(iter(self.adapters.values()), None)
-        if adapter:
-            await adapter.send(ack)
-
-        # 3. 确保会话 + 追加用户消息
+        # 2. 确保会话 + 追加用户消息
         self.sessions.create_session(sid)
         self.sessions.append_message(sid, "user", msg.content,
                                      metadata={"emotion": emotion["emotion"]})
 
-        # 4. 读取上下文 + 转发思维层
+        # 3. 读取上下文 + 转发思维层
         context = self.sessions.get_context(sid)
         self.bus.emit("message.received",
                        msg=msg,
