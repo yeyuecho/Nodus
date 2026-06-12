@@ -161,7 +161,7 @@ async def main():
         adapters = [ConsoleAdapter()]
         logger.info("[Gateway] Console-only mode (use --serve for real platforms)")
 
-    gateway = MessageRouter(bus, adapters, sessions, llm=llm)
+    gateway = MessageRouter(bus, adapters, sessions)
     logger.info(f"[Gateway] {len(adapters)} adapters loaded")
 
     # 5. Webhook 服务器（仅服务模式）
@@ -193,12 +193,15 @@ async def main():
     bus.on("message.received", brain.handle)
 
     async def on_response_ready(message_id, content, session_id=None,
-                                platform=None, channel_id=None, **kwargs):
+                                platform=None, channel_id=None,
+                                is_ack=False, **kwargs):
         await gateway.deliver(OutgoingMessage(
             reply_to=session_id or message_id,
             content=content,
             platform=platform,
             channel_id=channel_id,
+            is_ack=is_ack,
+            is_final=not is_ack,
         ))
 
     bus.on("response.ready", on_response_ready)

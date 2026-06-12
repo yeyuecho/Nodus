@@ -2,19 +2,14 @@
 网关层 — 多平台消息接入 + 会话管理 + 转发思维层 + 推送回复
 
 来源: nanobot (精简版)
-定位: 纯消息路由。ACK 由 LLM 生成，一句 prompt 搞定。
+定位: 纯消息路由，不调 LLM，不生成 ACK。ACK 由 brain 统一推送。
 """
 
 import asyncio
 import logging
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from shared.core import IncomingMessage, OutgoingMessage, Platform, EventBus
 from data.session_store import SessionStore
-from brain.persona import DEFAULT_PERSONA, build_system_prompt
 
 logger = logging.getLogger("qiyue.gateway")
 
@@ -38,15 +33,14 @@ class FeishuAdapter(BaseAdapter):
 
 
 class MessageRouter:
-    """消息路由 — LLM 生成 ACK + 会话管理 + 转发 brain"""
+    """消息路由 — 纯转发，ACK 由 brain 统一生成"""
 
     SESSION_PREFIX = "unified:"
 
-    def __init__(self, bus, adapters, sessions, llm=None):
+    def __init__(self, bus, adapters, sessions):
         self.bus = bus
         self.adapters = {a.platform: a for a in adapters}
         self.sessions = sessions
-        self.llm = llm
         self.sessions.init_db()
 
     def _session_id(self, msg):
@@ -55,53 +49,15 @@ class MessageRouter:
     async def route(self, msg: IncomingMessage):
         sid = self._session_id(msg)
         self.sessions.create_session(sid)
-
-        # 取一次上下文，ACK 和 brain 共享
-        ctx = self.sessions.get_context(sid)
-
-        # ACK: LLM 生成（用同一份上下文），fire-and-forget
-        asyncio.create_task(self._ack(msg, ctx))
-
-        # 追加消息 + 转发 brain（同一份上下文）
         self.sessions.append_message(sid, "user", msg.content)
         self.bus.emit("message.received",
                        msg=msg, session_id=sid,
-                       context=ctx)
-
-    async def _ack(self, msg, recent=None):
-        if not self.llm:
-            return
-        logger.info(f"[ACK] start: '{msg.content[:30]}'")
-        try:
-            import time; t0 = time.time()
-            msgs = [{"role": "system", "content": build_system_prompt(DEFAULT_PERSONA, role="回复生成")}]
-            if recent:
-                for m in recent:
-                    if m.get("role") == "tool":
-                        continue  # 不喂工具结果，避免 ACK 模仿 tool_calls
-                    content = m.get("content", "")
-                    if isinstance(content, str) and content:
-                        msgs.append({"role": m["role"], "content": content[:200]})
-            msgs.append({"role": "user", "content": msg.content})
-            text = await self.llm.chat(msgs)
-            dt = (time.time() - t0) * 1000
-            text = text.strip()
-            logger.info(f"[ACK] done ({dt:.0f}ms): '{text}'")
-            if not text:
-                text = "嗯"
-        except Exception as e:
-            logger.error(f"[ACK] FAIL: {type(e).__name__}: {e}")
-            return
-
-        ack = OutgoingMessage(reply_to=msg.id, content=text,
-                              is_ack=True, is_final=False)
-        adapter = next(iter(self.adapters.values()), None)
-        if adapter:
-            await adapter.send(ack)
+                       context=self.sessions.get_context(sid))
 
     async def deliver(self, response: OutgoingMessage):
         sid = response.reply_to
-        self.sessions.append_message(sid, "assistant", response.content)
+        if not response.is_ack:
+            self.sessions.append_message(sid, "assistant", response.content)
         adapter = next(iter(self.adapters.values()), None)
         if adapter:
             await adapter.send(response)
