@@ -21,6 +21,7 @@ from shared.core import (
 from data.session_store import SessionStore
 from brain.persona import (
     Persona, DEFAULT_PERSONA, build_system_prompt, get_emotion_strategy,
+    _INJECTED_SOUL, _INJECTED_MEMORY,
 )
 
 logger = logging.getLogger("qiyue.brain")
@@ -514,11 +515,19 @@ class Brain:
         LLM 收到消息 → 可以调用工具 → 看到结果 → 继续思考 → 最终回复
         """
         try:
-            # 构建 system prompt
-            emotion_guide = get_emotion_strategy(self.persona, emotion_tag)
-            system = build_system_prompt(self.persona, role="回复生成")
-            system += f"\n\n用户情绪: {emotion_tag}\n策略: {emotion_guide}"
-            system += "\n\n你可以调用工具获取真实信息。如果工具返回错误，分析原因告诉用户。"
+            # 构建精简 system prompt（不注入全量记忆，保持快速）
+            system = f"""你是{p.name}（Nodus），一个统一智能体。
+所有能力内置。不需要外部服务。
+你可以调用工具获取真实信息。每次工具调用后你会看到结果，然后决定下一步。
+用中文自然回复，像朋友聊天。"""
+
+            # 注入核心规范（精简版）
+            if _INJECTED_SOUL:
+                system += f"\n\n{_INJECTED_SOUL[:800]}"
+
+            # 注入关键记忆（精简版）
+            if _INJECTED_MEMORY:
+                system += f"\n\n{_INJECTED_MEMORY[:1000]}"
 
             # 构建消息
             context_str = ""
@@ -575,8 +584,14 @@ class Brain:
                     logger.info(f"[_reason_loop] T{turn+1}: {name}")
 
                     try:
-                        result = await self.executor.execute(name, args)
-                        output = json.dumps(result, ensure_ascii=False, default=str)[:3000]
+                        result = await asyncio.wait_for(
+                            self.executor.execute(name, args),
+                            timeout=10.0,
+                        )
+                        output = json.dumps(result, ensure_ascii=False, default=str)[:2000]
+                    except asyncio.TimeoutError:
+                        output = json.dumps({"error": "Tool execution timed out (10s)"})
+                        logger.error(f"[_reason_loop] Tool {name} timed out")
                     except Exception as e:
                         output = json.dumps({"error": str(e)})
                         logger.error(f"[_reason_loop] Tool {name} failed: {e}")
