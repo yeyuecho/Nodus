@@ -39,12 +39,14 @@ class IntentParser:
 
 输出 JSON（只输出 JSON，不要其他文字）:
 {{
-  "intent": "信息查询 | 代码修复 | 浏览器操作 | 文档处理 | 系统诊断 | 架构设计 | 日常对话 | 文件操作",
+  "intent": "系统诊断 | 文件操作 | 信息查询 | 代码修复 | 日常对话",
   "confidence": 0.0-1.0,
   "parameters": {{}},
   "complexity": "simple | complex",
   "reasoning": "简短判断依据"
-}}"""
+}}
+
+注意："查看配置"/"看看电脑"/"系统状态"/"怎么样" 等涉及系统信息 → 系统诊断。"""
 
     def __init__(self, llm: LLMClient):
         self.llm = llm
@@ -97,35 +99,19 @@ class IntentParser:
 class TaskPlanner:
     """任务拆解 + 编排 + 路由决策"""
 
-    PLANNING_PROMPT = """基于意图，制定执行计划。你必须判断是否需要调用工具。
+    PLANNING_PROMPT = """基于意图，制定执行计划。
 
 意图: {intent}
 参数: {params}
-置信度: {confidence}
-可用技能: {skills}
 可用工具: {tools}
 
-## 判断规则（严格遵守）
+## 规则（非常简单）：
+- 系统诊断、文件操作、信息查询、代码修复 → 必须 self_execute（调用工具）
+- 日常对话 → llm_direct_reply
+- 不确定 → self_execute
 
-### 必须用 self_execute（调用工具）的情况：
-- 查看系统信息/配置/硬件 → tool=shell_exec, command=systeminfo
-- 查电脑配置/CPU/内存/显卡/硬盘 → tool=shell_exec, command=systeminfo
-- 读文件/搜索文件 → tool=file_read/file_search
-- 写文件/改代码 → tool=file_write/file_patch
-- 执行命令/脚本 → tool=shell_exec
-- 任何需要访问本地系统才能完成的任务（即使意图是"信息查询"，只要涉及本地数据就必须用工具）
-
-### 必须用 dispatch_executor 的情况：
-- 网页搜索/查资料 → tool=web_search
-- 打开网页/截图 → tool=browser_navigate
-
-### 可以用 llm_direct_reply 的情况：
-- 纯聊天/打招呼
-- 解释概念/回答问题（不涉及本地系统）
-- 用户只是闲聊
-
-## 输出 JSON（严格遵守格式）:
-{{"action": "self_execute", "skill_match": null, "reasoning": "需要查看系统配置", "sub_tasks": [{{"id": "sub_1", "type": "shell", "tool": "shell_exec", "params": {{"command": "systeminfo"}}, "depends_on": []}}]}}"""
+## 输出 JSON：
+{{"action": "self_execute", "sub_tasks": [{{"id": "sub_1", "type": "shell", "tool": "shell_exec", "params": {{"command": "systeminfo"}}, "depends_on": []}}]}}"""
 
     def __init__(self, llm: LLMClient):
         self.llm = llm
@@ -153,8 +139,6 @@ class TaskPlanner:
         prompt = self.PLANNING_PROMPT.format(
             intent=intent.intent,
             params=json.dumps(intent.parameters, ensure_ascii=False),
-            confidence=intent.confidence,
-            skills=", ".join(available_skills or ["无"]),
             tools=tools_str,
         )
 
