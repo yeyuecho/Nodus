@@ -76,8 +76,8 @@ class MessageRouter:
             text = text.strip()
             logger.info(f"[ACK] done ({dt:.0f}ms): '{text}'")
             if not text:
-                logger.warning("[ACK] empty response from LLM — skipping")
-                return
+                logger.warning("[ACK] empty — using fallback '嗯'")
+                text = "嗯"
         except Exception as e:
             logger.error(f"[ACK] FAIL: {type(e).__name__}: {e}")
             return
