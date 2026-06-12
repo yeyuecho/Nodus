@@ -43,8 +43,15 @@ class EmotionDetector:
         ],
     }
 
-    # ACK：统一简洁回复（Hermes 没有单独 ACK，这里是纯路由层面的微秒确认）
-    ACK_TEXT = "收到~"
+    # 按情绪的 ACK（不猜测任务内容，只回应情绪状态）
+    ACK_BY_EMOTION = {
+        "angry": "嗯，我来看看怎么回事",
+        "frustrated": "好的，我来处理",
+        "urgent": "马上！",
+        "happy": "来啦~",
+        "sad": "在呢",
+        "neutral": "收到~",
+    }
 
     @classmethod
     def detect(cls, text: str) -> dict:
@@ -72,8 +79,10 @@ class EmotionDetector:
 
     @classmethod
     def pick_ack(cls, text: str) -> str:
-        """返回统一 ACK（Hermes 式：不猜测意图，只确认收到）"""
-        return cls.ACK_TEXT
+        """先用情绪检测，再选对应 ACK（不调 LLM，微秒级）"""
+        result = cls.detect(text)
+        emotion = result["emotion"]
+        return cls.ACK_BY_EMOTION.get(emotion, cls.ACK_BY_EMOTION["neutral"])
 
 
 class BaseAdapter:
@@ -121,12 +130,10 @@ class MessageRouter:
     async def route(self, msg: IncomingMessage):
         """
         收到消息 → 完整流程:
-        1. 情绪感知 + 智能 ACK
-        2. 确保会话存在
-        3. 秒回 ACK（有温度的）
-        4. 追加用户消息到会话（含情绪标签）
-        5. 读取会话上下文
-        6. 转发给思维层（附带情绪标签）
+        1. 情绪感知 → 按情绪选 ACK（微秒级，不调 LLM）
+        2. 秒回 ACK（有温度的，随情绪变化）
+        3. 追加用户消息 + 读取上下文
+        4. 转发给思维层
         """
         sid = self._session_id(msg)
         glog = logging.getLogger("qiyue.gateway")
@@ -135,10 +142,7 @@ class MessageRouter:
         emotion = EmotionDetector.detect(msg.content)
         glog.info(f"[{sid}] Emotion: {emotion['emotion']} ({emotion['confidence']:.2f})")
 
-        # 2. 确保会话存在
-        self.sessions.create_session(sid)
-
-        # 3. 秒回 ACK（智能匹配，有温度）
+        # 2. 秒回 ACK（按情绪，6 种变化，不机械）
         ack_text = EmotionDetector.pick_ack(msg.content)
         ack = OutgoingMessage(
             reply_to=msg.id,
@@ -151,16 +155,14 @@ class MessageRouter:
         adapter = self.adapters.get(msg.platform) or next(iter(self.adapters.values()), None)
         if adapter:
             await adapter.send(ack)
-            glog.debug(f"[ACK] '{ack_text}' via {adapter.__class__.__name__}")
 
-        # 4. 追加用户消息（含情绪标签）
+        # 3. 确保会话 + 追加用户消息
+        self.sessions.create_session(sid)
         self.sessions.append_message(sid, "user", msg.content,
                                      metadata={"emotion": emotion["emotion"]})
 
-        # 5. 读取会话上下文
+        # 4. 读取上下文 + 转发思维层
         context = self.sessions.get_context(sid)
-
-        # 6. 转发给思维层（附带情绪标签和上下文）
         self.bus.emit("message.received",
                        msg=msg,
                        session_id=sid,
