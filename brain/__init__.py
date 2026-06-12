@@ -21,13 +21,6 @@ from shared.core import (
 from data.session_store import SessionStore
 from brain.persona import (
     Persona, DEFAULT_PERSONA, build_system_prompt, get_emotion_strategy,
-    _INJECTED_SOUL, _INJECTED_MEMORY,
-)
-from config.defaults import (
-    ROOT as PROJECT_ROOT,
-    CORE_FILES,
-    TOOL_DESCRIPTIONS,
-    SYSTEM_PROMPT_TEMPLATE,
 )
 
 logger = logging.getLogger("qiyue.brain")
@@ -46,18 +39,12 @@ class IntentParser:
 
 输出 JSON（只输出 JSON，不要其他文字）:
 {{
-  "intent": "系统诊断 | 信息查询 | 代码修复 | 浏览器操作 | 文档处理 | 架构设计 | 日常对话 | 文件操作",
+  "intent": "信息查询 | 代码修复 | 浏览器操作 | 文档处理 | 系统诊断 | 架构设计 | 日常对话 | 文件操作",
   "confidence": 0.0-1.0,
   "parameters": {{}},
   "complexity": "simple | complex",
   "reasoning": "简短判断依据"
-}}
-
-注意：
-- "怎么样"/"状态"/"运行情况"/"还好吗" → 系统诊断
-- "配置"/"硬件"/"内存"/"CPU"/"电脑" → 系统诊断
-- "查"/"搜"/"找"/"有没有" → 信息查询
-- 纯打招呼/闲聊 → 日常对话"""
+}}"""
 
     def __init__(self, llm: LLMClient):
         self.llm = llm
@@ -118,24 +105,24 @@ class TaskPlanner:
 可用技能: {skills}
 可用工具: {tools}
 
-## 判断规则（严格遵守，违反将被惩罚）
+## 判断规则（严格遵守）
 
 ### 必须用 self_execute（调用工具）的情况：
-- 系统诊断/系统状态/运行情况 → tool=shell_exec, command=systeminfo 或 tasklist
-- 查看配置/硬件/CPU/内存/磁盘 → tool=shell_exec, command=systeminfo
-- 读文件/列出目录/查看内容 → tool=file_read/file_search/file_find
+- 查看系统信息/配置/硬件 → tool=shell_exec, command=systeminfo
+- 查电脑配置/CPU/内存/显卡/硬盘 → tool=shell_exec, command=systeminfo
+- 读文件/搜索文件 → tool=file_read/file_search
 - 写文件/改代码 → tool=file_write/file_patch
 - 执行命令/脚本 → tool=shell_exec
-- 任何"读/看/检查/列出"本地文件或系统 → 必须用工具，禁止编造
+- 任何需要访问本地系统才能完成的任务（即使意图是"信息查询"，只要涉及本地数据就必须用工具）
 
 ### 必须用 dispatch_executor 的情况：
 - 网页搜索/查资料 → tool=web_search
 - 打开网页/截图 → tool=browser_navigate
 
-### 可以用 llm_direct_reply 的情况（仅限以下）：
-- 纯聊天/打招呼/情感交流
-- 解释概念/回答问题（完全不需要访问本地系统）
-- 用户只是闲聊，没让你做任何事
+### 可以用 llm_direct_reply 的情况：
+- 纯聊天/打招呼
+- 解释概念/回答问题（不涉及本地系统）
+- 用户只是闲聊
 
 ## 输出 JSON（严格遵守格式）:
 {{"action": "self_execute", "skill_match": null, "reasoning": "需要查看系统配置", "sub_tasks": [{{"id": "sub_1", "type": "shell", "tool": "shell_exec", "params": {{"command": "systeminfo"}}, "depends_on": []}}]}}"""
@@ -478,169 +465,6 @@ class Brain:
         sys.stdout.write("\r" + " " * 30 + "\r")
         sys.stdout.flush()
 
-    # ═══════════════════════════════════════════
-    # Hermes 风格推理循环
-    # ═══════════════════════════════════════════
-
-    def _build_tool_defs(self) -> list[dict]:
-        """将注册的工具转换为 OpenAI tool calling 格式"""
-        tool_names = {
-            "shell_exec": ("执行Shell命令", {"command": {"type": "string", "description": "要执行的命令，如 systeminfo / tasklist / dir"}}),
-            "file_read": ("读取文件", {"path": {"type": "string", "description": "文件路径"}, "offset": {"type": "integer"}, "limit": {"type": "integer"}}),
-            "file_write": ("写入文件", {"path": {"type": "string"}, "content": {"type": "string"}}),
-            "file_patch": ("修改文件内容", {"path": {"type": "string"}, "old_string": {"type": "string"}, "new_string": {"type": "string"}}),
-            "file_search": ("搜索文件内容", {"pattern": {"type": "string"}, "path": {"type": "string"}, "limit": {"type": "integer"}}),
-            "file_find": ("查找文件", {"pattern": {"type": "string"}, "path": {"type": "string"}}),
-            "web_search": ("网络搜索", {"query": {"type": "string"}, "max_results": {"type": "integer"}}),
-            "web_fetch": ("获取网页", {"url": {"type": "string"}}),
-        }
-        defs = []
-        # 只暴露当前已注册的工具
-        for name, (desc, props) in tool_names.items():
-            if name in self._available_tools:
-                defs.append({
-                    "type": "function",
-                    "function": {
-                        "name": name,
-                        "description": desc,
-                        "parameters": {
-                            "type": "object",
-                            "properties": props,
-                            "required": list(props.keys())[:1],  # 第一个参数必填
-                        },
-                    },
-                })
-        return defs
-
-    def _parse_text_tool_calls(self, content: str) -> list:
-        """从 LLM 文本输出中解析 tool call"""
-        import re
-        calls = []
-        # <invoke name="xxx">...<parameter name="yyy">zzz</parameter>...</invoke>
-        invoke_re = re.compile(
-            r'<invoke\s+name\s*=\s*"(\w+)"[^>]*>(.*?)</invoke>',
-            re.DOTALL,
-        )
-        param_re = re.compile(
-            r'<parameter\s+name\s*=\s*"(\w+)"[^>]*>(.*?)</parameter>',
-            re.DOTALL,
-        )
-        for m in invoke_re.finditer(content):
-            name = m.group(1)
-            params_str = m.group(2)
-            args = {}
-            for pm in param_re.finditer(params_str):
-                args[pm.group(1)] = pm.group(2).strip()
-            if args:
-                calls.append({"function": {"name": name, "arguments": json.dumps(args)}})
-        return calls
-
-    async def _reason_loop(self, msg: IncomingMessage,
-                           context: list[dict],
-                           emotion_tag: str,
-                           max_turns: int = 2) -> str:
-        """
-        工具调用 → 汇总回复（最多2轮）
-        """
-        try:
-            # 用预构建模板生成 system prompt（含路径、工具、核心文件）
-            system = SYSTEM_PROMPT_TEMPLATE.format(
-                name=self.persona.name,
-                root=str(PROJECT_ROOT),
-                core_files=", ".join(CORE_FILES.keys()),
-                tools="\n".join(f"  {k}: {v}" for k, v in TOOL_DESCRIPTIONS.items()),
-                soul=_INJECTED_SOUL[:300] or "",
-                memory=_INJECTED_MEMORY[:300] or "",
-            )
-
-            context_str = ""
-            if context:
-                recent = context[-4:]
-                context_str = "最近:\n" + "\n".join(
-                    f"[{m['role']}]: {m['content'][:150]}" for m in recent
-                )
-
-            user_content = msg.content
-            if context_str:
-                user_content = f"{context_str}\n\n用户: {msg.content}"
-
-            messages = [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_content},
-            ]
-
-            tool_defs = self._build_tool_defs()
-
-            for turn in range(max_turns):
-                self._show_stage("planning" if turn == 0 else "executing")
-
-                try:
-                    resp = await self.llm.chat_with_tools(
-                        messages, tool_defs,
-                        temperature=0.5,
-                    )
-                except Exception as e:
-                    logger.error(f"[_reason_loop] LLM error: {e}")
-                    return f"出错了：{e}"
-
-                tool_calls = resp.get("tool_calls", [])
-
-                # 如果原生 tool_calls 为空，尝试从文本中解析
-                if not tool_calls:
-                    content = resp.get("content", "")
-                    if "<invoke" in content or "<function_call" in content or "<tool_call" in content:
-                        tool_calls = self._parse_text_tool_calls(content)
-                        if tool_calls:
-                            logger.info(f"[_reason_loop] Parsed {len(tool_calls)} text-format tool calls")
-                        else:
-                            # 解析失败，去掉工具调用语法只返回人话部分
-                            import re
-                            clean = re.sub(r'<invoke[^>]*>.*?</invoke>', '', content, flags=re.DOTALL)
-                            clean = re.sub(r'<function_calls>.*?</function_calls>', '', clean, flags=re.DOTALL)
-                            clean = re.sub(r'<tool_calls>.*?</tool_calls>', '', clean, flags=re.DOTALL)
-                            return clean.strip() or "嗯？"
-
-                if not tool_calls:
-                    return resp.get("content", "") or "嗯？"
-
-                # 只执行第一个工具调用
-                tc = tool_calls[0]
-                name = tc.get("function", {}).get("name", tc.get("name", "unknown"))
-                args = tc.get("function", {}).get("arguments", tc.get("params", tc.get("args", {})))
-                if isinstance(args, str):
-                    try:
-                        args = json.loads(args)
-                    except json.JSONDecodeError:
-                        args = {}
-
-                try:
-                    result = await asyncio.wait_for(
-                        self.executor.execute(name, args), timeout=10.0,
-                    )
-                    output = json.dumps(result, ensure_ascii=False, default=str)[:2000]
-                except asyncio.TimeoutError:
-                    output = json.dumps({"error": "timeout"})
-                except Exception as e:
-                    output = json.dumps({"error": str(e)})
-
-                # 追加结果并强制 LLM 总结
-                messages.append({"role": "assistant", "content": "", "tool_calls": [tc]})
-                messages.append({"role": "tool", "tool_call_id": tc.get("id", "t0"), "content": output})
-                messages.append({"role": "user", "content": "请基于以上结果，用自然中文回复用户。不要继续调用工具。"})
-
-                self._show_stage("replying")
-                try:
-                    final = await self.llm.chat(messages, temperature=0.7)
-                    return final or "处理完成~"
-                except Exception:
-                    return "处理超时，请重试~"
-
-            return "处理完成~"
-
-        except Exception as e:
-            logger.error(f"[_reason_loop] Fatal: {e}")
-            return f"出错了：{e}"
-
 
     def __init__(self, llm: LLMClient, bus: EventBus,
                  sessions: SessionStore = None,
@@ -680,93 +504,84 @@ class Brain:
                      context: list[dict] = None,
                      emotion: dict = None,
                      **kwargs):
-        """Hermes-style: tool calling + execute + iterate + respond."""
+        """
+        完整推理流水线（含人设 + 情绪感知）:
+        意图 → 搜索记忆 → 规划 → 路由 → 执行 → 翻译官 → 保存
+        """
         start = time.time()
         sid = session_id or f"unified:{msg.channel_id}"
 
-        system = f"你是{self.persona.name}（Nodus）。项目路径: {PROJECT_ROOT}。用中文。"
-        messages = [{"role": "system", "content": system}, {"role": "user", "content": msg.content}]
-        tool_defs = self._build_tool_defs()
-        response = None
+        # 提取情绪标签
+        emotion_tag = (emotion or {}).get("emotion", "neutral")
+        if emotion_tag != "neutral":
+            logger.info(f"[{sid}] Emotion: {emotion_tag}")
 
-        for turn in range(5):
-            self._show_stage("planning" if turn == 0 else "executing")
-            try:
-                resp = await self.llm.chat_with_tools(messages, tool_defs)
-            except Exception as e:
-                response = f"出错了：{e}"; break
+        # 1. 意图解析
+        self._show_stage("intent")
+        intent = await self.intent_parser.parse(msg, context or [])
+        logger.info(f"[{sid}] Intent: {intent.intent} ({intent.confidence:.2f})")
 
-            tool_calls = resp.get("tool_calls") or []
-            if not tool_calls:
-                response = resp.get("content", "") or "嗯"; break
+        # 2. 搜索相关历史记忆
+        self._show_stage("memory")
+        memories = await self.memory.search_relevant(intent)
+        if memories:
+            logger.info(f"[{sid}] Found {len(memories)} relevant memories")
 
-            messages.append({"role": "assistant", "content": resp.get("content") or None, "tool_calls": tool_calls})
-            for tc in tool_calls:
-                fn = tc.get("function", {})
-                name = fn.get("name", "")
-                args_str = fn.get("arguments", "{}")
-                try: args = json.loads(args_str) if isinstance(args_str, str) else args_str
-                except: args = {}
-                try:
-                    r = await asyncio.wait_for(self.executor.execute(name, args), timeout=10.0)
-                    out = json.dumps(r, ensure_ascii=False, default=str)[:3000]
-                except asyncio.TimeoutError: out = '{"error":"timeout"}'
-                except Exception as e: out = json.dumps({"error": str(e)})
-                messages.append({"role": "tool", "tool_call_id": tc.get("id", f"t{turn}"), "content": out})
-        else:
-            self._show_stage("replying")
-            messages.append({"role": "user", "content": "请总结以上信息回复用户。"})
-            try: response = await self.llm.chat(messages, temperature=0.7)
-            except: response = "处理完成"
-
-        self._clear_stage()
-        if response: self.memory.save_interaction(sid, msg.content, response)
-        elapsed = (time.time() - start) * 1000
-        logger.info(f"[{sid}] Done in {elapsed:.0f}ms")
-        self.bus.emit("response.ready", message_id=msg.id, content=response or "处理完成", session_id=sid, platform=msg.platform, channel_id=msg.channel_id, elapsed_ms=elapsed)
-        start = time.time()
-        sid = session_id or f"unified:{msg.channel_id}"
-
+        # 3. 任务规划
         self._show_stage("planning")
-
-        # 把所有信息注入 system prompt，LLM 不需要调工具
-        system = SYSTEM_PROMPT_TEMPLATE.format(
-            name=self.persona.name,
-            root=str(PROJECT_ROOT),
-            core_files=", ".join(CORE_FILES.keys()),
-            tools="",
-            soul=_INJECTED_SOUL[:500] or "",
-            memory=_INJECTED_MEMORY[:500] or "",
+        plan = await self.task_planner.plan(
+            intent, {},
+            available_skills=self._available_skills,
+            available_tools=self._available_tools,
         )
-        system += "\n\n直接回复用户，用自然中文。不要调用工具，不要输出 XML。"
+        logger.info(f"[{sid}] Plan: {plan.action}, {len(plan.sub_tasks)} sub-tasks")
 
-        try:
-            response = await self.llm.chat([
-                {"role": "system", "content": system},
-                {"role": "user", "content": msg.content},
-            ], temperature=0.7)
-        except Exception as e:
-            response = f"出错了：{e}"
+        # 4. 按 action 处理（传入情绪标签）
+        if plan.action == "llm_direct_reply":
+            self._show_stage("replying")
+            response = await self._generate_reply(msg, context, memories, emotion_tag)
 
-        # 过滤可能的 XML 标签
-        import re
-        response = re.sub(r'<invoke[^>]*>.*?</invoke>', '', response, flags=re.DOTALL)
-        response = re.sub(r'<function_calls>.*?</function_calls>', '', response, flags=re.DOTALL)
-        response = re.sub(r'<parameter[^>]*>.*?</parameter>', '', response, flags=re.DOTALL)
-        response = response.strip() or "嗯？"
+        elif plan.action == "dispatch_executor":
+            self._show_stage("executing")
+            self.bus.emit("task.dispatched", plan=plan, session_id=sid)
+            response = "收到，正在处理，稍等一下哦~"
+            asyncio.create_task(self._dispatch_and_reply(plan, msg, sid, context, emotion_tag))
+
+        else:  # self_execute
+            self._show_stage("executing")
+            response = await self._self_execute(plan, msg, context, emotion_tag)
 
         self._clear_stage()
 
+        # 5. 保存会话
         if response:
             self.memory.save_interaction(sid, msg.content, response)
 
+        # 6. 尝试生成技能（含偏好学习）
+        skill_content = await self.skill_engine.try_generate(
+            intent, plan, msg_content=msg.content,
+        )
+        if skill_content and self.skill_engine.skill_loader:
+            logger.info(f"[{sid}] Generated new skill candidate")
+            # 保存技能到文件
+            slug = intent.intent.replace(" ", "-").lower()
+            skill_dir = Path("skills") / slug
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(skill_content, encoding="utf-8")
+            self.skill_engine.skill_loader.load_all()
+            self._available_skills = [s.slug for s in self.skill_engine.skill_loader.list_all()]
+
+        # 7. 推送回复
         elapsed = (time.time() - start) * 1000
         logger.info(f"[{sid}] Done in {elapsed:.0f}ms")
 
         self.bus.emit("response.ready",
-                       message_id=msg.id, content=response,
-                       session_id=sid, platform=msg.platform,
-                       channel_id=msg.channel_id, elapsed_ms=elapsed)
+                       message_id=msg.id,
+                       content=response or "处理完成",
+                       session_id=sid,
+                       platform=msg.platform,
+                       channel_id=msg.channel_id,
+                       elapsed_ms=elapsed)
 
     async def _generate_reply(self, msg: IncomingMessage,
                               context: list[dict],
