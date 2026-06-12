@@ -20,7 +20,7 @@ from data.session_store import SessionStore
 # ═══════════════════════════════════════════
 
 class EmotionDetector:
-    """基于关键词 + 正则的情绪快速分类，微秒级"""
+    """基于关键词 + 正则的情绪快速分类，微秒级。可选 NLP 增强。"""
 
     PATTERNS = {
         "angry": [
@@ -30,6 +30,7 @@ class EmotionDetector:
         "frustrated": [
             r"(?i)(不行|没用|不好使|坏了|又挂了|怎么搞的)",
             r"(?i)(算了|放弃了|不搞了|随便吧)",
+            r"(?i)(还是|又是|老是|总是|怎么还|能不能)",
         ],
         "urgent": [
             r"(?i)(快|赶紧|马上|立刻|急|紧急|救命|在线等)",
@@ -43,7 +44,6 @@ class EmotionDetector:
         ],
     }
 
-    # 按情绪的 ACK（不猜测任务内容，只回应情绪状态）
     ACK_BY_EMOTION = {
         "angry": "嗯，我看下",
         "frustrated": "好，我看看",
@@ -53,9 +53,36 @@ class EmotionDetector:
         "neutral": "嗯",
     }
 
+    _nlp_available: bool = None
+
+    @classmethod
+    def _try_nlp(cls, text: str) -> dict | None:
+        """尝试用 SnowNLP 做情感分析（无依赖时静默跳过）"""
+        if cls._nlp_available is None:
+            try:
+                from snownlp import SnowNLP
+                cls._nlp_available = True
+            except ImportError:
+                cls._nlp_available = False
+        if not cls._nlp_available:
+            return None
+        try:
+            from snownlp import SnowNLP
+            s = SnowNLP(text)
+            score = s.sentiments
+            if score < 0.3:
+                return {"emotion": "angry", "confidence": 1 - score}
+            elif score < 0.5:
+                return {"emotion": "frustrated", "confidence": 0.7}
+            elif score > 0.8:
+                return {"emotion": "happy", "confidence": score}
+            return None  # NLP 不确定，交给 regex
+        except Exception:
+            return None
+
     @classmethod
     def detect(cls, text: str) -> dict:
-        """分析消息，返回情绪标签和置信度"""
+        """分析消息：正则快速路径 + NLP 兜底（微秒级保底）"""
         scores = {}
         for emotion, pattern_groups in cls.PATTERNS.items():
             score = 0
@@ -63,12 +90,16 @@ class EmotionDetector:
                 matches = re.findall(pattern, text)
                 score += len(matches)
             if score > 0:
-                scores[emotion] = min(score, 3)  # 上限 3
+                scores[emotion] = min(score, 3)
 
         if not scores:
+            # 正则没命中 → 尝试 NLP（无依赖时直接返回 neutral）
+            nlp = cls._try_nlp(text)
+            if nlp:
+                nlp["scores"] = {}
+                return nlp
             return {"emotion": "neutral", "confidence": 1.0, "scores": {}}
 
-        # 取最高分情绪
         dominant = max(scores, key=scores.get)
         confidence = min(scores[dominant] / 3.0, 1.0)
         return {
@@ -130,14 +161,14 @@ class MessageRouter:
     async def route(self, msg: IncomingMessage):
         """
         收到消息 → 完整流程:
-        1. 情绪感知 → 按情绪秒回 ACK（微秒级）
+        1. 情绪感知 → 秒回 ACK（fire-and-forget，不阻塞 brain）
         2. 确保会话 + 追加用户消息 + 读取上下文
         3. 转发给思维层
         """
         sid = self._session_id(msg)
         glog = logging.getLogger("qiyue.gateway")
 
-        # 1. 情绪感知 + 秒回 ACK
+        # 1. 情绪感知 + 秒回 ACK（微秒级，不等人）
         emotion = EmotionDetector.detect(msg.content)
         glog.info(f"[{sid}] Emotion: {emotion['emotion']} ({emotion['confidence']:.2f})")
 
