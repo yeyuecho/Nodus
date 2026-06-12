@@ -681,64 +681,55 @@ class Brain:
                      emotion: dict = None,
                      **kwargs):
         """
-        简化推理：关键字匹配 → 直接执行工具 → LLM 总结
+        一次 LLM 调用（带工具）→ 有 tool_calls 就执行 → 再调一次总结
         """
         start = time.time()
         sid = session_id or f"unified:{msg.channel_id}"
         emotion_tag = (emotion or {}).get("emotion", "neutral")
 
-        content = msg.content
+        self._show_stage("planning")
 
-        # === 快速路径：关键字匹配直接执行工具 ===
+        # 构建消息
+        system = f"你是{self.persona.name}（Nodus）。项目路径: {PROJECT_ROOT}。用中文。"
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": msg.content},
+        ]
 
-        # 系统状态
-        if any(kw in content for kw in ["系统", "状态", "怎么样", "配置", "CPU", "内存", "运行"]):
-            self._show_stage("executing")
-            try:
-                result = await asyncio.wait_for(
-                    self.executor.execute("shell_exec", {"command": "systeminfo"}),
-                    timeout=10.0,
-                )
-                output = str(result.get("output", result))[:2000]
-            except Exception:
-                output = "无法获取系统信息"
-            self._show_stage("replying")
-            response = await self._summarize(msg, output, emotion_tag)
+        tool_defs = self._build_tool_defs()
+        resp = await self.llm.chat_with_tools(messages, tool_defs, temperature=0.5)
 
-        # 核心文件检查
-        elif "核心文件" in content or "检查" in content:
-            self._show_stage("executing")
-            core_list = "\n".join(f"- {f}: {d}" for f, d in CORE_FILES.items())
-            self._show_stage("replying")
-            response = await self._summarize(msg, core_list, emotion_tag)
-
-        # 读文件
-        elif "读" in content or "查看" in content:
-            self._show_stage("executing")
-            # 尝试提取路径
-            import re
-            path_match = re.search(r'([A-Za-z]:[\\/\w.]+|\w+\.\w+)', content)
-            target = path_match.group(1) if path_match else "README.md"
-            try:
-                result = await asyncio.wait_for(
-                    self.executor.execute("file_read", {"path": target}),
-                    timeout=10.0,
-                )
-                output = str(result.get("output", result))[:2000]
-            except Exception:
-                output = f"无法读取 {target}"
-            self._show_stage("replying")
-            response = await self._summarize(msg, output, emotion_tag)
-
-        # 纯闲聊
-        elif len(content) < 10 and any(kw in content for kw in ["你好", "嗨", "在吗", "谢谢", "嗯", "哦"]):
-            self._show_stage("replying")
-            response = await self._generate_reply(msg, context, [], emotion_tag)
-
-        # 其他 → 普通 LLM 回复
+        tool_calls = resp.get("tool_calls", [])
+        if not tool_calls:
+            response = resp.get("content", "") or "嗯？"
         else:
+            self._show_stage("executing")
+            # 执行工具
+            results = []
+            for tc in tool_calls:
+                name = tc["function"]["name"]
+                args = json.loads(tc["function"]["arguments"]) if isinstance(tc["function"]["arguments"], str) else tc["function"]["arguments"]
+                try:
+                    r = await asyncio.wait_for(self.executor.execute(name, args), timeout=10.0)
+                    results.append(str(r.get("output", r))[:2000])
+                except Exception as e:
+                    results.append(f"错误: {e}")
+
             self._show_stage("replying")
-            response = await self._generate_reply(msg, context, [], emotion_tag)
+            # 第二次调用：总结
+            messages.append({
+                "role": "assistant",
+                "content": None,
+                "tool_calls": tool_calls,
+            })
+            for i, tc in enumerate(tool_calls):
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": results[i] if i < len(results) else "无结果",
+                })
+            final = await self.llm.chat(messages, temperature=0.7)
+            response = final or "处理完成~"
 
         self._clear_stage()
         if response:
@@ -748,32 +739,9 @@ class Brain:
         logger.info(f"[{sid}] Done in {elapsed:.0f}ms")
 
         self.bus.emit("response.ready",
-                       message_id=msg.id,
-                       content=response or "处理完成",
-                       session_id=sid,
-                       platform=msg.platform,
-                       channel_id=msg.channel_id,
-                       elapsed_ms=elapsed)
-
-    async def _summarize(self, msg: IncomingMessage, tool_output: str, emotion_tag: str) -> str:
-        """把工具结果交给 LLM 总结成人话"""
-        system = f"""你是{self.persona.name}（Nodus）。
-以下是工具执行结果。用自然中文总结回复用户。
-
-核心文件:
-{', '.join(CORE_FILES.keys())}
-
-用户问题: {msg.content}
-工具结果:
-{tool_output}
-"""
-        try:
-            return await self.llm.chat([
-                {"role": "system", "content": system},
-                {"role": "user", "content": "请基于结果回复用户。"},
-            ], temperature=0.7)
-        except Exception:
-            return f"查到结果了：{tool_output[:500]}"
+                       message_id=msg.id, content=response,
+                       session_id=sid, platform=msg.platform,
+                       channel_id=msg.channel_id, elapsed_ms=elapsed)
 
     async def _generate_reply(self, msg: IncomingMessage,
                               context: list[dict],
