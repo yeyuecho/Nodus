@@ -30,6 +30,401 @@ logger = logging.getLogger("qiyue.brain")
 # 1. 意图解析器
 # ═══════════════════════════════════════════
 
+class IntentParser:
+    """LLM 驱动的意图识别 + 参数提取"""
+
+    INTENT_PROMPT = """分析用户输入，输出结构化意图。
+
+用户输入: {user_message}
+
+输出 JSON（只输出 JSON，不要其他文字）:
+{{
+  "intent": "信息查询 | 代码修复 | 浏览器操作 | 文档处理 | 系统诊断 | 架构设计 | 日常对话 | 文件操作",
+  "confidence": 0.0-1.0,
+  "parameters": {{}},
+  "complexity": "simple | complex",
+  "reasoning": "简短判断依据"
+}}"""
+
+    def __init__(self, llm: LLMClient):
+        self.llm = llm
+
+    async def parse(self, msg: IncomingMessage, context: list[dict]) -> IntentResult:
+        """解析用户意图"""
+        # 构建上下文
+        context_str = ""
+        if context:
+            recent = context[-6:]  # 最近 6 条
+            context_str = "\n".join(
+                f"[{m['role']}]: {m['content'][:200]}" for m in recent
+            )
+
+        prompt = self.INTENT_PROMPT.format(user_message=msg.content)
+        if context_str:
+            prompt += f"\n\n对话上下文:\n{context_str}"
+
+        try:
+            # 用 persona 风格的 system prompt
+            system = build_system_prompt(role="意图解析")
+            result = await self.llm.chat_json([
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ], temperature=0.1)
+
+            intent = result.get("intent", "日常对话")
+            confidence = float(result.get("confidence", 0.8))
+            params = result.get("parameters", {})
+
+            return IntentResult(
+                intent=intent,
+                confidence=confidence,
+                parameters=params,
+                raw_input=msg.content,
+            )
+        except Exception as e:
+            logger.error(f"Intent parsing failed: {e}")
+            return IntentResult(
+                intent="日常对话",
+                confidence=0.5,
+                raw_input=msg.content,
+            )
+
+
+# ═══════════════════════════════════════════
+# 2. 任务规划器
+# ═══════════════════════════════════════════
+
+class TaskPlanner:
+    """任务拆解 + 编排 + 路由决策"""
+
+    PLANNING_PROMPT = """基于意图，制定执行计划。你必须判断是否需要调用工具。
+
+意图: {intent}
+参数: {params}
+置信度: {confidence}
+可用技能: {skills}
+可用工具: {tools}
+
+## 判断规则（严格遵守）
+
+### 必须用 self_execute（调用工具）的情况：
+- 查看系统信息/配置/硬件 → tool=shell_exec, command=systeminfo
+- 查电脑配置/CPU/内存/显卡/硬盘 → tool=shell_exec, command=systeminfo
+- 读文件/搜索文件 → tool=file_read/file_search
+- 写文件/改代码 → tool=file_write/file_patch
+- 执行命令/脚本 → tool=shell_exec
+- 任何需要访问本地系统才能完成的任务（即使意图是"信息查询"，只要涉及本地数据就必须用工具）
+
+### 必须用 dispatch_executor 的情况：
+- 网页搜索/查资料 → tool=web_search
+- 打开网页/截图 → tool=browser_navigate
+
+### 可以用 llm_direct_reply 的情况：
+- 纯聊天/打招呼
+- 解释概念/回答问题（不涉及本地系统）
+- 用户只是闲聊
+
+## 输出 JSON（严格遵守格式）:
+{{"action": "self_execute", "skill_match": null, "reasoning": "需要查看系统配置", "sub_tasks": [{{"id": "sub_1", "type": "shell", "tool": "shell_exec", "params": {{"command": "systeminfo"}}, "depends_on": []}}]}}"""
+
+    def __init__(self, llm: LLMClient):
+        self.llm = llm
+
+    async def plan(self, intent: IntentResult, context: dict,
+                   available_skills: list[str] = None,
+                   available_tools: dict = None) -> ExecutionPlan:
+        """制定执行计划"""
+        task_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        # 低置信度 → 直接回复，不冒险规划
+        if intent.confidence < 0.5:
+            return ExecutionPlan(
+                task_id=task_id,
+                intent=intent,
+                action="llm_direct_reply",
+            )
+
+        # 格式化工具列表为描述形式
+        if available_tools:
+            tools_str = "\n".join(f"  - {name}: {desc}" for name, desc in available_tools.items())
+        else:
+            tools_str = "无"
+
+        prompt = self.PLANNING_PROMPT.format(
+            intent=intent.intent,
+            params=json.dumps(intent.parameters, ensure_ascii=False),
+            confidence=intent.confidence,
+            skills=", ".join(available_skills or ["无"]),
+            tools=tools_str,
+        )
+
+        try:
+            system = build_system_prompt(role="任务规划")
+            result = await self.llm.chat_json([
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ], temperature=0.1)
+
+            action = result.get("action", "llm_direct_reply")
+            skill_match = result.get("skill_match")
+            sub_tasks_raw = result.get("sub_tasks", [])
+
+            sub_tasks = []
+            for st in sub_tasks_raw:
+                try:
+                    task_type = TaskType(st.get("type", "llm"))
+                except ValueError:
+                    task_type = TaskType.LLM
+
+                sub_tasks.append(SubTask(
+                    id=st.get("id", f"sub_{len(sub_tasks)}"),
+                    type=task_type,
+                    tool=st.get("tool", ""),
+                    params=st.get("params", {}),
+                    depends_on=st.get("depends_on", []),
+                ))
+
+            return ExecutionPlan(
+                task_id=task_id,
+                intent=intent,
+                sub_tasks=sub_tasks,
+                action=action,
+                skill_match=skill_match,
+            )
+        except Exception as e:
+            logger.error(f"Task planning failed: {e}")
+            return ExecutionPlan(
+                task_id=task_id,
+                intent=intent,
+                action="llm_direct_reply",
+            )
+
+
+# ═══════════════════════════════════════════
+# 3. 记忆管理器
+# ═══════════════════════════════════════════
+
+class MemoryManager:
+    """记忆管理 — 搜索 + 上下文 + 事实提取"""
+
+    SEARCH_PROMPT = """根据当前意图，判断是否需要搜索历史记忆。
+
+当前意图: {intent}
+参数: {params}
+
+如果需要搜索，返回关键词列表；如果不需要，返回空列表。
+
+输出 JSON:
+{{"need_search": true/false, "keywords": ["关键词1", "关键词2"]}}"""
+
+    def __init__(self, sessions: SessionStore, llm: LLMClient):
+        self.sessions = sessions
+        self.llm = llm
+        self.sessions.init_db()
+
+    async def search_relevant(self, intent: IntentResult) -> list[dict]:
+        """根据意图搜索相关历史记忆"""
+        try:
+            resp = await self.llm.chat_json([
+                {"role": "system", "content": "判断是否需要搜索记忆。只输出 JSON。"},
+                {"role": "user", "content": self.SEARCH_PROMPT.format(
+                    intent=intent.intent,
+                    params=json.dumps(intent.parameters, ensure_ascii=False),
+                )},
+            ], temperature=0.1)
+
+            if resp.get("need_search") and resp.get("keywords"):
+                query = " OR ".join(resp["keywords"])
+                return self.sessions.search(query, limit=5)
+        except Exception as e:
+            logger.error(f"Memory search failed: {e}")
+
+        return []
+
+    def get_context(self, session_id: str, limit: int = 30) -> list[dict]:
+        """获取会话上下文"""
+        return self.sessions.get_context(session_id, limit)
+
+    def save_interaction(self, session_id: str, user_msg: str, assistant_msg: str):
+        """保存一轮对话"""
+        self.sessions.append_exchange(session_id, user_msg, assistant_msg)
+
+    def extract_facts(self, content: str) -> list[str]:
+        """从内容中提取关键事实（简化版：按句号分割取前3句）"""
+        sentences = [s.strip() for s in content.split("。") if s.strip()]
+        return sentences[:3]
+
+
+# ═══════════════════════════════════════════
+# 4. 任务路由器
+# ═══════════════════════════════════════════
+
+class TaskRouter:
+    """任务路由 — 判断谁来执行"""
+
+    # 思维层自己执行的类型
+    SELF_EXECUTE = {TaskType.CODE, TaskType.SHELL, TaskType.FILE, TaskType.LLM}
+    # 派发执行层的类型
+    DISPATCH = {TaskType.BROWSER, TaskType.WEB}
+
+    def route(self, plan: ExecutionPlan) -> dict:
+        """拆分任务: {self: [SubTask], dispatch: [SubTask]}"""
+        result = {"self": [], "dispatch": []}
+
+        for st in plan.sub_tasks:
+            if st.type in self.DISPATCH:
+                result["dispatch"].append(st)
+            else:
+                result["self"].append(st)
+
+        return result
+
+
+# ═══════════════════════════════════════════
+# 5. 自我进化引擎
+# ═══════════════════════════════════════════
+
+class SelfSkillEngine:
+    """自动技能生成引擎 + 用户偏好学习"""
+
+    SKILL_PROMPT = """基于以下执行记录，生成一个技能骨架。
+
+任务类型: {intent}
+参数: {params}
+执行计划: {plan}
+执行结果: {result}
+用户偏好: {preferences}
+
+生成 SKILL.md 内容（YAML frontmatter + Markdown body）:
+
+---
+name: {自动生成技能名}
+version: 0.1.0
+source: self_generated
+triggers:
+  - {触发关键词}
+tools: {所需工具列表}
+user_preferences:
+  - {从交互中提取的用户偏好}
+---
+
+## When to Use
+{使用场景}
+
+## Workflow
+{步骤}
+
+## Output Format
+{输出格式}
+
+## User Preferences Learned
+{记录的偏好}
+
+只输出技能内容，不要解释。"""
+
+    def __init__(self, llm: LLMClient, skill_loader=None):
+        self.llm = llm
+        self.skill_loader = skill_loader
+        self.preferences_path = Path("data/memory/user_preferences.json")
+
+    def load_preferences(self) -> dict:
+        """加载已有用户偏好"""
+        if self.preferences_path.exists():
+            try:
+                return json.loads(self.preferences_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        return {"preferences": [], "patterns": []}
+
+    def save_preferences(self, prefs: dict):
+        """保存用户偏好"""
+        self.preferences_path.parent.mkdir(parents=True, exist_ok=True)
+        self.preferences_path.write_text(
+            json.dumps(prefs, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _detect_preferences(self, msg_content: str, plan: ExecutionPlan,
+                            result_output: str) -> list[str]:
+        """从一轮交互中检测用户偏好（轻量规则）"""
+        prefs = []
+        lowered = msg_content.lower()
+
+        # 格式偏好
+        if any(kw in lowered for kw in ["表格", "列表", "列出来"]):
+            prefs.append("偏好列表/表格格式输出")
+        if any(kw in lowered for kw in ["简单", "一句话", "简短"]):
+            prefs.append("偏好简洁回复")
+        if any(kw in lowered for kw in ["详细", "展开", "多说"]):
+            prefs.append("偏好详细解释")
+        if any(kw in lowered for kw in ["图表", "图", "可视化"]):
+            prefs.append("偏好数据可视化/图表")
+
+        # 行为模式
+        if plan.action == "self_execute" and plan.sub_tasks:
+            tools_used = [st.tool for st in plan.sub_tasks]
+            prefs.append(f"常用工具: {', '.join(tools_used)}")
+
+        # 从执行结果推断
+        if result_output and len(result_output) > 500:
+            prefs.append("接受较长输出")
+
+        return prefs
+
+    async def try_generate(
+        self, intent: IntentResult, plan: ExecutionPlan,
+        result: TaskResult = None,
+        msg_content: str = "",
+    ) -> Optional[str]:
+        """尝试生成新技能（含偏好学习）"""
+        # 条件：无匹配技能 + 置信度 > 0.7 + 非 ad-hoc
+        if intent.confidence < 0.7:
+            return None
+        if plan.skill_match:
+            return None
+        if plan.action == "llm_direct_reply":
+            return None
+
+        # 检测并累积用户偏好
+        result_output = result.output if result else ""
+        new_prefs = self._detect_preferences(msg_content, plan, result_output)
+
+        if new_prefs:
+            existing = self.load_preferences()
+            for pref in new_prefs:
+                if pref not in existing["preferences"]:
+                    existing["preferences"].append(pref)
+            self.save_preferences(existing)
+            logger.info(f"[SkillEngine] Learned {len(new_prefs)} new preference(s)")
+
+        try:
+            prefs = self.load_preferences()
+            prefs_str = "\n".join(f"- {p}" for p in prefs.get("preferences", [])[:10])
+
+            content = await self.llm.chat([
+                {"role": "system", "content": "你是技能生成器，输出 SKILL.md 格式的技能定义。记录用户偏好。"},
+                {"role": "user", "content": self.SKILL_PROMPT.format(
+                    intent=intent.intent,
+                    params=json.dumps(intent.parameters, ensure_ascii=False),
+                    plan=json.dumps({
+                        "action": plan.action,
+                        "sub_tasks": [{"type": st.type, "tool": st.tool} for st in plan.sub_tasks],
+                    }, ensure_ascii=False),
+                    result=result_output,
+                    preferences=prefs_str or "暂无",
+                )},
+            ], temperature=0.3)
+
+            return content
+        except Exception as e:
+            logger.error(f"Skill generation failed: {e}")
+            return None
+
+
+# ═══════════════════════════════════════════
+# Brain 主类
+# ═══════════════════════════════════════════
+
 class Brain:
     """思维中枢 — 组装五大能力，处理每条消息"""
 
