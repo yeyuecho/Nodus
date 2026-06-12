@@ -7,7 +7,6 @@
 
 import asyncio
 import logging
-from pathlib import Path
 
 from shared.core import IncomingMessage, OutgoingMessage, Platform, EventBus
 from data.session_store import SessionStore
@@ -16,9 +15,7 @@ logger = logging.getLogger("qiyue.gateway")
 
 
 class BaseAdapter:
-    """平台适配器基类"""
     platform: Platform
-
     async def start(self): ...
     async def stop(self): ...
     async def send(self, msg: OutgoingMessage): ...
@@ -28,98 +25,79 @@ class BaseAdapter:
 class DingTalkAdapter(BaseAdapter):
     platform = Platform.DINGTALK
 
-
 class WeChatAdapter(BaseAdapter):
     platform = Platform.WECHAT
-
 
 class FeishuAdapter(BaseAdapter):
     platform = Platform.FEISHU
 
 
 class MessageRouter:
-    """消息路由 — LLM 驱动的自然 ACK + 会话上下文 + 转发 + 持久化"""
+    """消息路由 — LLM 生成 ACK + 会话管理 + 转发 brain"""
 
     SESSION_PREFIX = "unified:"
+    ACK_PROMPT = "用≤5字简短自然地回应用户，像朋友。禁止「收到」「好的」。"
 
-    ACK_PROMPT = """用一句话简短自然地回应用户（≤8字），像朋友聊天。
-规则：禁止用「收到」「好的」「了解」等客服腔。允许用「嗯」「来了」「好」「在」「嘿嘿」等口语。"""
-
-    def __init__(self, bus: EventBus, adapters: list[BaseAdapter],
-                 sessions: SessionStore, llm=None):
+    def __init__(self, bus, adapters, sessions, llm=None):
         self.bus = bus
         self.adapters = {a.platform: a for a in adapters}
         self.sessions = sessions
-        self.llm = llm  # 用于生成 ACK，None 时静默跳过
+        self.llm = llm
         self.sessions.init_db()
 
-    def _session_id(self, msg: IncomingMessage) -> str:
+    def _session_id(self, msg):
         return f"{self.SESSION_PREFIX}{msg.channel_id}"
 
     async def route(self, msg: IncomingMessage):
-        """收到消息 → ACK（fire-and-forget）+ 转发 brain"""
         sid = self._session_id(msg)
         self.sessions.create_session(sid)
 
-        # 1. 秒回 ACK（LLM 生成，fire-and-forget，不阻塞 brain）
-        asyncio.create_task(self._send_ack(msg))
+        # ACK: LLM 生成，fire-and-forget
+        asyncio.create_task(self._ack(msg))
 
-        # 2. 追加用户消息
+        # 追加消息 + 转发 brain
         self.sessions.append_message(sid, "user", msg.content)
-
-        # 3. 读取上下文 + 转发思维层
-        context = self.sessions.get_context(sid)
         self.bus.emit("message.received",
-                       msg=msg,
-                       session_id=sid,
-                       context=context)
+                       msg=msg, session_id=sid,
+                       context=self.sessions.get_context(sid))
 
-    async def _send_ack(self, msg: IncomingMessage):
-        """LLM 生成自然 ACK，异步推送"""
+    async def _ack(self, msg):
         if not self.llm:
+            logger.warning("[ACK] no LLM client — ACK disabled")
             return
+        logger.info(f"[ACK] start: '{msg.content[:30]}'")
         try:
-            ack_text = await self.llm.chat([
+            import time; t0 = time.time()
+            text = await self.llm.chat([
                 {"role": "system", "content": self.ACK_PROMPT},
                 {"role": "user", "content": msg.content},
-            ], max_tokens=10, temperature=0.7)
-            ack_text = ack_text.strip().rstrip("。！!~～")
-            if not ack_text:
+            ], max_tokens=5, temperature=0)
+            dt = (time.time() - t0) * 1000
+            text = text.strip()
+            logger.info(f"[ACK] done ({dt:.0f}ms): '{text}'")
+            if not text:
+                logger.warning("[ACK] empty response from LLM — skipping")
                 return
-        except Exception:
+        except Exception as e:
+            logger.error(f"[ACK] FAIL: {type(e).__name__}: {e}")
             return
 
-        ack = OutgoingMessage(
-            reply_to=msg.id,
-            content=ack_text,
-            content_type="text",
-            is_ack=True,
-            is_final=False,
-        )
-        adapter = self.adapters.get(msg.platform) or next(iter(self.adapters.values()), None)
+        ack = OutgoingMessage(reply_to=msg.id, content=text,
+                              is_ack=True, is_final=False)
+        adapter = next(iter(self.adapters.values()), None)
         if adapter:
-            try:
-                await adapter.send(ack)
-            except Exception:
-                pass
+            await adapter.send(ack)
 
     async def deliver(self, response: OutgoingMessage):
-        """思维层回复 → 持久化 + 推送"""
         sid = response.reply_to
         self.sessions.append_message(sid, "assistant", response.content)
-        adapter = self._resolve_adapter(response)
+        adapter = next(iter(self.adapters.values()), None)
         if adapter:
             await adapter.send(response)
 
-    def _resolve_adapter(self, response: OutgoingMessage) -> BaseAdapter:
-        for adapter in self.adapters.values():
-            return adapter
-        return None
-
-    def get_context(self, channel_id: str, limit: int = 30) -> list[dict]:
-        sid = f"{self.SESSION_PREFIX}{channel_id}"
-        return self.sessions.get_context(sid, limit)
+    def get_context(self, channel_id: str, limit=30):
+        return self.sessions.get_context(
+            f"{self.SESSION_PREFIX}{channel_id}", limit)
 
     def compact(self, channel_id: str):
-        sid = f"{self.SESSION_PREFIX}{channel_id}"
-        self.sessions.compact(sid)
+        self.sessions.compact(f"{self.SESSION_PREFIX}{channel_id}")
