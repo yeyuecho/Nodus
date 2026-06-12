@@ -579,8 +579,10 @@ class Brain:
                 # 如果原生 tool_calls 为空，尝试从文本中解析
                 if not tool_calls:
                     content = resp.get("content", "")
-                    if "<function_calls>" in content or "<invoke" in content:
+                    if "<invoke" in content or "<function_call" in content or "<tool_call" in content:
                         tool_calls = self._parse_text_tool_calls(content)
+                        if tool_calls:
+                            logger.info(f"[_reason_loop] Parsed {len(tool_calls)} text-format tool calls")
 
                 if not tool_calls:
                     return resp.get("content", "") or "嗯？"

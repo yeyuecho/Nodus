@@ -90,19 +90,23 @@ class ModelAdapter:
             },
         )
 
-        # 附加 tool_calls（如果有）
-        if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
-            response.tool_calls = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in choice.message.tool_calls
-            ]
+        # 附加 tool_calls（如果有）—— 兼容 DeepSeek 返回格式
+        tc = getattr(choice.message, 'tool_calls', None) or []
+        if tc:
+            response.tool_calls = []
+            for t in tc:
+                # 兼容对象格式和字典格式
+                if hasattr(t, 'function'):
+                    response.tool_calls.append({
+                        "id": getattr(t, 'id', ''),
+                        "type": "function",
+                        "function": {
+                            "name": t.function.name,
+                            "arguments": t.function.arguments,
+                        },
+                    })
+                elif isinstance(t, dict):
+                    response.tool_calls.append(t)
 
         return response
 
