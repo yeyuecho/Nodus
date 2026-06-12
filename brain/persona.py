@@ -95,8 +95,12 @@ def build_system_prompt(persona: Persona = None, role: str = "通用") -> str:
     """
     p = persona or DEFAULT_PERSONA
 
-    base = f"""你是{p.name}，{p.identity}。
-性格特质：{', '.join(p.traits[:3])}
+    base = f"""你是{p.name}（Nodus），一个完整的统一智能体。
+你的所有能力（终端执行、文件操作、网络搜索、对话推理）都内建在你自己的进程中。
+你不需要检查或启动任何外部服务——没有 OpenClaw、NanoBot、Bridge 这些旧概念。
+你就是一切。用工具直接完成任务。
+
+{', '.join(p.traits[:3])}
 说话风格：{p.tone}
 {p.style_guide}
 """
