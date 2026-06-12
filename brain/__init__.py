@@ -640,35 +640,32 @@ class Brain:
                      emotion: dict = None,
                      **kwargs):
         """
-        Hermes 风格推理流水线：
-        情绪感知 → 快速意图 → [推理循环 / 直接回复]
+        快速推理流水线：
+        纯闲聊 → 直接 LLM 回复（1 次调用）
+        其他 → 推理循环（LLM 自己决定是否调工具）
         """
         start = time.time()
         sid = session_id or f"unified:{msg.channel_id}"
 
         emotion_tag = (emotion or {}).get("emotion", "neutral")
-        if emotion_tag != "neutral":
-            logger.info(f"[{sid}] Emotion: {emotion_tag}")
 
-        # 快速意图检查：纯闲聊直接回复
-        self._show_stage("intent")
-        intent = await self.intent_parser.parse(msg, context or [])
-        logger.info(f"[{sid}] Intent: {intent.intent} ({intent.confidence:.2f})")
-
+        # 快速判断：纯闲聊（关键词秒判，不调 LLM）
+        pure_chat_keywords = ["你好", "嗨", "在吗", "谢谢", "晚安", "早", "哈哈", "嗯", "哦", "好"]
         is_pure_chat = (
-            intent.intent == "日常对话" and
-            intent.confidence > 0.8 and
+            len(msg.content) < 15 and
             not any(kw in msg.content for kw in [
                 "配置", "电脑", "系统", "CPU", "内存", "硬盘", "文件",
                 "读", "写", "改", "查", "搜", "看", "怎么样", "运行",
-            ])
+                "帮我", "执行", "安装", "部署", "启动", "停止",
+            ]) and
+            any(kw in msg.content for kw in pure_chat_keywords)
         )
 
         if is_pure_chat:
             self._show_stage("replying")
             response = await self._generate_reply(msg, context, [], emotion_tag)
         else:
-            # Hermes 风格推理循环：工具调用 + 迭代思考
+            self._show_stage("planning")
             response = await self._reason_loop(msg, context, emotion_tag)
 
         self._clear_stage()
