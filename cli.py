@@ -107,7 +107,7 @@ def cmd_config(args):
     if args.show:
         print("=== .env ===")
         if env_path.exists():
-            for line in env_path.read_text().splitlines():
+            for line in env_path.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
                 if line and not line.startswith("#"):
                     if "=" in line:
@@ -122,7 +122,7 @@ def cmd_config(args):
         print("=== config/config.json ===")
         if config_path.exists():
             import json
-            cfg = json.loads(config_path.read_text())
+            cfg = json.loads(config_path.read_text(encoding="utf-8"))
             print(json.dumps(cfg, indent=2, ensure_ascii=False))
         else:
             print("  (不存在)")
@@ -134,8 +134,8 @@ def cmd_config(args):
             print(f"[FAIL] 格式: nodus config --set KEY=VALUE")
             return 1
         if not env_path.exists():
-            env_path.write_text("")
-        lines = env_path.read_text().splitlines()
+            env_path.write_text("", encoding="utf-8")
+        lines = env_path.read_text(encoding="utf-8").splitlines()
         found = False
         for i, line in enumerate(lines):
             if line.startswith(f"{key}="):
@@ -144,7 +144,7 @@ def cmd_config(args):
                 break
         if not found:
             lines.append(f"{key}={value}")
-        env_path.write_text("\n".join(lines) + "\n")
+        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         print(f"[OK] {key} 已更新")
         return 0
 
@@ -180,7 +180,7 @@ def cmd_doctor(args):
     env_ok = env_path.exists()
     api_key_set = False
     if env_ok:
-        content = env_path.read_text()
+        content = env_path.read_text(encoding="utf-8")
         api_key_set = "DEEPSEEK_API_KEY" in content and "sk-your-key" not in content
     checks.append((".env", "存在" if env_ok else "缺失", env_ok))
     checks.append(("API Key", "已配置" if api_key_set else "未配置或占位", api_key_set))
@@ -230,12 +230,12 @@ def cmd_start(args):
 
     # 快速自检
     env_path = PROJECT_ROOT / ".env"
-    if not env_path.exists() or "DEEPSEEK_API_KEY" not in env_path.read_text():
+    if not env_path.exists() or "DEEPSEEK_API_KEY" not in env_path.read_text(encoding="utf-8"):
         print("[FAIL] 未配置 DEEPSEEK_API_KEY，请先运行 nodus setup")
         return 1
 
     # 加载 .env
-    for line in env_path.read_text().splitlines():
+    for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             key, _, val = line.partition("=")
