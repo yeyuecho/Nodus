@@ -74,7 +74,7 @@ class MessageRouter:
         logger.info(f"[ACK] start: '{msg.content[:30]}'")
         try:
             import time; t0 = time.time()
-            msgs = [{"role": "system", "content": build_system_prompt(DEFAULT_PERSONA)}]
+            msgs = [{"role": "system", "content": build_system_prompt(DEFAULT_PERSONA, role="回复生成")}]
             if recent:
                 for m in recent:
                     if m.get("role") == "tool":
