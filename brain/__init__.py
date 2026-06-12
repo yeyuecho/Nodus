@@ -680,58 +680,40 @@ class Brain:
                      context: list[dict] = None,
                      emotion: dict = None,
                      **kwargs):
-        """
-        一次 LLM 调用（带工具）→ 有 tool_calls 就执行 → 再调一次总结
-        """
+        """一次 LLM 调用，直接回复"""
         start = time.time()
         sid = session_id or f"unified:{msg.channel_id}"
-        emotion_tag = (emotion or {}).get("emotion", "neutral")
 
         self._show_stage("planning")
 
-        # 构建消息
-        system = f"你是{self.persona.name}（Nodus）。项目路径: {PROJECT_ROOT}。用中文。"
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": msg.content},
-        ]
+        # 把所有信息注入 system prompt，LLM 不需要调工具
+        system = SYSTEM_PROMPT_TEMPLATE.format(
+            name=self.persona.name,
+            root=str(PROJECT_ROOT),
+            core_files=", ".join(CORE_FILES.keys()),
+            tools="",
+            soul=_INJECTED_SOUL[:500] or "",
+            memory=_INJECTED_MEMORY[:500] or "",
+        )
+        system += "\n\n直接回复用户，用自然中文。不要调用工具，不要输出 XML。"
 
-        tool_defs = self._build_tool_defs()
-        resp = await self.llm.chat_with_tools(messages, tool_defs, temperature=0.5)
+        try:
+            response = await self.llm.chat([
+                {"role": "system", "content": system},
+                {"role": "user", "content": msg.content},
+            ], temperature=0.7)
+        except Exception as e:
+            response = f"出错了：{e}"
 
-        tool_calls = resp.get("tool_calls", [])
-        if not tool_calls:
-            response = resp.get("content", "") or "嗯？"
-        else:
-            self._show_stage("executing")
-            # 执行工具
-            results = []
-            for tc in tool_calls:
-                name = tc["function"]["name"]
-                args = json.loads(tc["function"]["arguments"]) if isinstance(tc["function"]["arguments"], str) else tc["function"]["arguments"]
-                try:
-                    r = await asyncio.wait_for(self.executor.execute(name, args), timeout=10.0)
-                    results.append(str(r.get("output", r))[:2000])
-                except Exception as e:
-                    results.append(f"错误: {e}")
-
-            self._show_stage("replying")
-            # 第二次调用：总结
-            messages.append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": tool_calls,
-            })
-            for i, tc in enumerate(tool_calls):
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": results[i] if i < len(results) else "无结果",
-                })
-            final = await self.llm.chat(messages, temperature=0.7)
-            response = final or "处理完成~"
+        # 过滤可能的 XML 标签
+        import re
+        response = re.sub(r'<invoke[^>]*>.*?</invoke>', '', response, flags=re.DOTALL)
+        response = re.sub(r'<function_calls>.*?</function_calls>', '', response, flags=re.DOTALL)
+        response = re.sub(r'<parameter[^>]*>.*?</parameter>', '', response, flags=re.DOTALL)
+        response = response.strip() or "嗯？"
 
         self._clear_stage()
+
         if response:
             self.memory.save_interaction(sid, msg.content, response)
 
