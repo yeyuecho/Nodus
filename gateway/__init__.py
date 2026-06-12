@@ -8,7 +8,6 @@
 import re
 import sys
 import logging
-import random
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -44,40 +43,8 @@ class EmotionDetector:
         ],
     }
 
-    # ACK 模板按意图关键词匹配
-    ACK_TEMPLATES = {
-        "system_check": [
-            "正在查看系统信息 🖥️",
-            "让我看看你的电脑~",
-            "查配置是吧，马上 👀",
-        ],
-        "search": [
-            "正在搜索 🔍",
-            "帮你找找看~",
-            "搜一下，稍等哦",
-        ],
-        "file_ops": [
-            "收到，准备处理 📝",
-            "文件交给我~",
-            "开始动手啦 ✍️",
-        ],
-        "device_control": [
-            "正在执行操作 ⚡",
-            "好的，我来控制~",
-            "收到指令！",
-        ],
-        "chat": [
-            "嗯嗯，我在听~",
-            "收到~",
-            "好嘞 👋",
-            "在呢在呢",
-        ],
-        "default": [
-            "收到，正在处理~",
-            "交给我吧 🔍",
-            "马上就来~",
-        ],
-    }
+    # ACK：统一简洁回复（Hermes 没有单独 ACK，这里是纯路由层面的微秒确认）
+    ACK_TEXT = "收到~"
 
     @classmethod
     def detect(cls, text: str) -> dict:
@@ -105,28 +72,8 @@ class EmotionDetector:
 
     @classmethod
     def pick_ack(cls, text: str) -> str:
-        """根据消息内容选一条有温度的 ACK"""
-        lowered = text.lower()
-
-        # 系统信息类
-        if any(kw in lowered for kw in ["配置", "电脑", "系统", "硬件", "cpu", "内存", "显卡", "硬盘", "设备"]):
-            pool = cls.ACK_TEMPLATES["system_check"]
-        # 搜索类
-        elif any(kw in lowered for kw in ["搜索", "查", "找", "搜", "有没有", "在哪"]):
-            pool = cls.ACK_TEMPLATES["search"]
-        # 文件操作类
-        elif any(kw in lowered for kw in ["写", "改", "修", "代码", "文件", "创建", "删除", "保存"]):
-            pool = cls.ACK_TEMPLATES["file_ops"]
-        # 设备控制类
-        elif any(kw in lowered for kw in ["开", "关", "控制", "空调", "灯", "设备", "启动", "停止"]):
-            pool = cls.ACK_TEMPLATES["device_control"]
-        # 闲聊类
-        elif len(text) < 10 or any(kw in lowered for kw in ["你好", "嗨", "在吗", "谢谢", "晚安", "早"]):
-            pool = cls.ACK_TEMPLATES["chat"]
-        else:
-            pool = cls.ACK_TEMPLATES["default"]
-
-        return random.choice(pool)
+        """返回统一 ACK（Hermes 式：不猜测意图，只确认收到）"""
+        return cls.ACK_TEXT
 
 
 class BaseAdapter:

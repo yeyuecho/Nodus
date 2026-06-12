@@ -173,7 +173,10 @@ class Brain:
                 final_response = content or "好的~"
                 break
 
-            # 有工具调用 → 追加 assistant 消息
+            # 有工具调用 → 进度提示 + 追加 assistant 消息
+            tool_names = [tc.get("function", {}).get("name", "?") for tc in tool_calls]
+            print(f"\n  🔧 {', '.join(tool_names)}...")
+
             api_messages.append({
                 "role": "assistant",
                 "content": content or None,
@@ -189,8 +192,7 @@ class Brain:
                 except json.JSONDecodeError:
                     tool_args = {}
 
-                logger.info(f"[Brain] Tool call: {tool_name}({tool_args})")
-
+                t0 = time.time()
                 if self.executor:
                     try:
                         result = await self.executor.execute(tool_name, tool_args)
@@ -199,6 +201,13 @@ class Brain:
                         tool_output = f"错误: {e}"
                 else:
                     tool_output = "错误: 无执行层"
+                dt = (time.time() - t0) * 1000
+
+                # 进度：工具执行耗时
+                if dt < 1000:
+                    print(f"    ✓ {tool_name} ({dt:.0f}ms)")
+                else:
+                    print(f"    ✓ {tool_name} ({dt/1000:.1f}s)")
 
                 # 截断过长的工具输出
                 if len(tool_output) > 8000:
