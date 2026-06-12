@@ -351,10 +351,37 @@ class LLMClient:
         )
 
         self._call_count += 1
-        return {
+
+        result = {
             "content": resp.content or "",
             "tool_calls": resp.tool_calls or [],
         }
+
+        # DeepSeek 可能把 tool_calls 放在 content 文本里而非原生字段
+        if not result["tool_calls"] and result["content"] and "<invoke" in result["content"]:
+            import re, json
+            calls = []
+            for m in re.finditer(
+                r'<invoke\s+name\s*=\s*"(\w+)"[^>]*>(.*?)</invoke>',
+                result["content"], re.DOTALL,
+            ):
+                name = m.group(1)
+                args = {}
+                for pm in re.finditer(
+                    r'<parameter\s+name\s*=\s*"(\w+)"[^>]*>(.*?)</parameter>',
+                    m.group(2), re.DOTALL,
+                ):
+                    args[pm.group(1)] = pm.group(2).strip()
+                if args:
+                    calls.append({
+                        "id": f"call_{len(calls)}",
+                        "type": "function",
+                        "function": {"name": name, "arguments": json.dumps(args)},
+                    })
+            if calls:
+                result["tool_calls"] = calls
+
+        return result
 
     # ─── 多 Provider 切换 ───
 
