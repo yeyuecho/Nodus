@@ -13,15 +13,15 @@ from pathlib import Path
 # 项目根目录
 ROOT = Path(__file__).parent.parent
 
-# 7大核心文件（定义 Nodus 身份的文件，非代码文件）
+# 7大核心文件（全部 Markdown，定义 Nodus 身份）
 CORE_FILES = {
-    "SOUL.md": "灵魂——统一智能体身份、7条绝对红线",
-    "data/memory/MEMORY.md": "长期记忆——踩坑、设备、架构知识",
-    "data/memory/RULES.md": "行为铁律——别动就停、VM先测再上线",
-    "config/config.json": "运行时配置——API密钥、通道开关、模型",
-    "config/defaults.py": "默认配置——路径、工具描述、核心文件清单",
-    "brain/persona.py": "人格定义——名字、性格、说话风格、系统prompt",
-    "pyproject.toml": "项目定义——包名、版本、依赖、命令入口",
+    "SOUL.md": "灵魂——智能体身份定义、7条绝对红线",
+    "AGENTS.md": "架构——三层结构、核心能力、启动方式",
+    "data/memory/MEMORY.md": "长期记忆——踩坑记录、设备清单、架构知识",
+    "data/memory/RULES.md": "行为铁律——别动就停、VM先测再上线、禁止测试消息",
+    "data/memory/USER.md": "用户画像——偏好、设备、智能家居、红线",
+    "config/config.json": "运行时配置——API密钥、通道开关、模型参数",
+    "DEPLOY.md": "部署指南——安装、配置、启动、故障排查",
 }
 
 # 工具描述（注入到 LLM system prompt）
