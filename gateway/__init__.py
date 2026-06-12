@@ -77,7 +77,7 @@ class MessageRouter:
                     if isinstance(content, str) and content:
                         msgs.append({"role": m["role"], "content": content[:200]})
             msgs.append({"role": "user", "content": msg.content})
-            text = await self.llm.chat(msgs, max_tokens=128)
+            text = await self.llm.chat(msgs)
             dt = (time.time() - t0) * 1000
             text = text.strip()
             logger.info(f"[ACK] done ({dt:.0f}ms): '{text}'")
