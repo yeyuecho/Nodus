@@ -36,7 +36,7 @@ class MessageRouter:
     """消息路由 — LLM 生成 ACK + 会话管理 + 转发 brain"""
 
     SESSION_PREFIX = "unified:"
-    ACK_PROMPT = "用≤5字简短自然地回应用户，像朋友。禁止「收到」「好的」。"
+    ACK_PROMPT = "简短自然地回应用户（≤5字），像朋友聊天。不允许用「收到」。"
 
     def __init__(self, bus, adapters, sessions, llm=None):
         self.bus = bus
@@ -71,7 +71,7 @@ class MessageRouter:
             text = await self.llm.chat([
                 {"role": "system", "content": self.ACK_PROMPT},
                 {"role": "user", "content": msg.content},
-            ], max_tokens=5, temperature=0)
+            ], max_tokens=15, temperature=0)
             dt = (time.time() - t0) * 1000
             text = text.strip()
             logger.info(f"[ACK] done ({dt:.0f}ms): '{text}'")

@@ -88,7 +88,7 @@ class ModelAdapter:
         _log.info(f"finish_reason={choice.finish_reason} content_len={len(msg.content or '')} tool_calls={msg.tool_calls}")
 
         response = ChatResponse(
-            content=msg.content or "",
+            content=msg.content or getattr(msg, 'reasoning_content', None) or "",
             model=resp.model,
             usage={
                 "prompt_tokens": resp.usage.prompt_tokens if resp.usage else 0,
