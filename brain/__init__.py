@@ -511,14 +511,20 @@ class Brain:
                            emotion_tag: str,
                            max_turns: int = 2) -> str:
         """
-        一轮工具调用 → 直接回复
+        工具调用 → 汇总回复（最多2轮）
         """
         try:
-            system = f"""你是{self.persona.name}（Nodus）。
-调用工具获取信息，然后立即用自然中文回复用户。只能调用一次工具。"""
+            # 列出可用工具，让 LLM 知道能干什么
+            tool_list = "\n".join(
+                f"  {name}: {desc}" for name, desc in self._available_tools.items()
+            )
+            system = f"""你是{self.persona.name}（Nodus），统一智能体。
+可用工具：
+{tool_list}
 
+规则：调一次工具，看到结果后直接回复。用自然中文。"""
             if _INJECTED_SOUL:
-                system += f"\n{_INJECTED_SOUL[:500]}"
+                system += f"\n{_INJECTED_SOUL[:400]}"
 
             context_str = ""
             if context:
