@@ -509,17 +509,14 @@ class Brain:
     async def _reason_loop(self, msg: IncomingMessage,
                            context: list[dict],
                            emotion_tag: str,
-                           max_turns: int = 5) -> str:
+                           max_turns: int = 3) -> str:
         """
-        Hermes 风格推理循环：
-        LLM 收到消息 → 可以调用工具 → 看到结果 → 继续思考 → 最终回复
+        LLM 收到消息 → 调用工具 → 看到结果 → 回复（最多 3 轮）
         """
         try:
             # 构建精简 system prompt（不注入全量记忆，保持快速）
             system = f"""你是{self.persona.name}（Nodus），一个统一智能体。
-所有能力内置。不需要外部服务。
-你可以调用工具获取真实信息。每次工具调用后你会看到结果，然后决定下一步。
-用中文自然回复，像朋友聊天。"""
+工具调用后直接回复用户，不要反复调用。一轮搞定。用中文。"""
 
             # 注入核心规范（精简版）
             if _INJECTED_SOUL:
