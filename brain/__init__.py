@@ -21,7 +21,9 @@ from shared.core import (
 from data.session_store import SessionStore
 from brain.persona import (
     Persona, DEFAULT_PERSONA, build_system_prompt, get_emotion_strategy,
+    _INJECTED_SOUL, _INJECTED_MEMORY,
 )
+from config.defaults import CORE_FILES
 
 logger = logging.getLogger("qiyue.brain")
 
@@ -60,6 +62,7 @@ class IntentParser:
             )
 
         prompt = self.INTENT_PROMPT.format(user_message=msg.content)
+        prompt += f"\n\n核心文件: {', '.join(CORE_FILES.keys())}"
         if context_str:
             prompt += f"\n\n对话上下文:\n{context_str}"
 
