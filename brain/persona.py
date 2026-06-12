@@ -29,6 +29,7 @@ def _load_markdown(filename: str) -> str:
 # 启动时加载灵魂文件
 _INJECTED_MEMORY = _load_markdown("MEMORY.md")
 _INJECTED_RULES = _load_markdown("RULES.md")
+_INJECTED_SOUL = _load_markdown("../../SOUL.md")  # 项目根目录
 
 
 @dataclass
@@ -110,17 +111,23 @@ def build_system_prompt(persona: Persona = None, role: str = "通用") -> str:
         "意图解析": f"{base}\n你现在的任务是精确识别用户意图。只输出 JSON。",
         "任务规划": f"""{base}
 
-## 经验记忆（必须参考）
-{_INJECTED_MEMORY[:3000]}
+## 核心规范
+{_INJECTED_SOUL[:2000]}
 
-## 行为红线（必须遵守）
+## 经验记忆
+{_INJECTED_MEMORY[:2000]}
+
+## 行为红线
 {_INJECTED_RULES}
 
-你现在的任务是根据意图制定执行计划。只输出 JSON。严格遵守工具调用规则。""",
+你现在的任务是根据意图制定执行计划。只输出 JSON。""",
         "回复生成": f"""{base}
 
-## 经验记忆（遇到相关问题可引用）
-{_INJECTED_MEMORY[:2000]}
+## 核心规范
+{_INJECTED_SOUL[:1500]}
+
+## 经验记忆
+{_INJECTED_MEMORY[:1500]}
 
 ## 行为红线
 {_INJECTED_RULES}
