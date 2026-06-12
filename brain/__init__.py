@@ -508,94 +508,97 @@ class Brain:
     async def _reason_loop(self, msg: IncomingMessage,
                            context: list[dict],
                            emotion_tag: str,
-                           max_turns: int = 8) -> str:
+                           max_turns: int = 5) -> str:
         """
         Hermes 风格推理循环：
         LLM 收到消息 → 可以调用工具 → 看到结果 → 继续思考 → 最终回复
         """
-        # 构建 system prompt
-        emotion_guide = get_emotion_strategy(self.persona, emotion_tag)
-        system = build_system_prompt(self.persona, role="回复生成")
-        system += f"\n\n用户当前情绪: {emotion_tag}\n应对策略: {emotion_guide}"
-        system += "\n\n你可以调用工具来获取真实信息。禁止编造数据。每次工具调用后你会看到结果，然后决定下一步。"
+        try:
+            # 构建 system prompt
+            emotion_guide = get_emotion_strategy(self.persona, emotion_tag)
+            system = build_system_prompt(self.persona, role="回复生成")
+            system += f"\n\n用户情绪: {emotion_tag}\n策略: {emotion_guide}"
+            system += "\n\n你可以调用工具获取真实信息。如果工具返回错误，分析原因告诉用户。"
 
-        # 构建上下文
-        context_str = ""
-        if context:
-            recent = context[-6:]
-            context_str = "最近对话:\n" + "\n".join(
-                f"[{m['role']}]: {m['content'][:200]}" for m in recent
-            )
+            # 构建消息
+            context_str = ""
+            if context:
+                recent = context[-6:]
+                context_str = "最近对话:\n" + "\n".join(
+                    f"[{m['role']}]: {m['content'][:200]}" for m in recent
+                )
 
-        # 初始消息
-        user_content = msg.content
-        if context_str:
-            user_content = f"{context_str}\n\n用户说: {msg.content}"
+            user_content = msg.content
+            if context_str:
+                user_content = f"{context_str}\n\n用户说: {msg.content}"
 
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_content},
-        ]
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_content},
+            ]
 
-        tool_defs = self._build_tool_defs()
-        logger.info(f"[_reason_loop] {len(tool_defs)} tools available")
+            tool_defs = self._build_tool_defs()
+            logger.info(f"[_reason_loop] {len(tool_defs)} tools, msg='{msg.content[:50]}'")
 
-        for turn in range(max_turns):
-            self._show_stage("planning" if turn == 0 else "executing")
+            for turn in range(max_turns):
+                self._show_stage("planning" if turn == 0 else "executing")
 
-            resp = await self.llm.chat_with_tools(
-                messages, tool_defs,
-                temperature=0.5 if turn == 0 else 0.3,
-            )
+                try:
+                    resp = await self.llm.chat_with_tools(
+                        messages, tool_defs,
+                        temperature=0.5 if turn == 0 else 0.3,
+                    )
+                except Exception as e:
+                    logger.error(f"[_reason_loop] LLM error turn {turn}: {e}")
+                    self._show_stage("replying")
+                    return f"抱歉，思考过程中遇到了问题：{e}"
 
-            # 有 tool calls → 执行
-            tool_calls = resp.get("tool_calls", [])
-            if tool_calls:
-                # 添加 assistant 消息（含 tool_calls）
+                tool_calls = resp.get("tool_calls", [])
+                if not tool_calls:
+                    self._show_stage("replying")
+                    return resp.get("content", "") or "嗯，我在呢~"
+
+                # 有 tool calls → 执行
                 assistant_msg = {"role": "assistant", "content": resp.get("content") or ""}
                 assistant_msg["tool_calls"] = tool_calls
                 messages.append(assistant_msg)
 
                 for tc in tool_calls:
                     func = tc.get("function", {})
-                    name = func.get("name", "")
+                    name = func.get("name", "unknown")
                     args_str = func.get("arguments", "{}")
                     try:
                         args = json.loads(args_str) if isinstance(args_str, str) else args_str
                     except json.JSONDecodeError:
                         args = {}
 
-                    logger.info(f"[_reason_loop] Turn {turn+1}: {name}({args})")
+                    logger.info(f"[_reason_loop] T{turn+1}: {name}")
 
-                    # 执行工具
                     try:
                         result = await self.executor.execute(name, args)
-                        output = json.dumps(result, ensure_ascii=False, default=str)
+                        output = json.dumps(result, ensure_ascii=False, default=str)[:3000]
                     except Exception as e:
                         output = json.dumps({"error": str(e)})
+                        logger.error(f"[_reason_loop] Tool {name} failed: {e}")
 
-                    # 添加 tool result
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.get("id", f"call_{turn}"),
-                        "content": output[:4000],  # 截断过长结果
+                        "content": output,
                     })
 
-                continue  # 继续循环，让 LLM 看结果
-
-            # 没有 tool calls → 最终回复
+            # 超出轮次，要求 LLM 总结
             self._show_stage("replying")
-            final = resp.get("content", "")
+            messages.append({"role": "user", "content": "请基于以上信息，用自然语言回复用户。"})
+            try:
+                final = await self.llm.chat(messages, temperature=0.7)
+                return final or "处理完成~"
+            except Exception:
+                return "抱歉，处理超时了，请再说一次~"
 
-            # 如果经过了工具调用，再让 LLM 把结果翻译成人话
-            if turn > 0:
-                return final
-
-            # 第一轮就回复了 → 可能不需要工具，直接返回
-            return final
-
-        # 超过最大轮次
-        return "抱歉，处理过程中遇到了一些问题，请稍后再试~"
+        except Exception as e:
+            logger.error(f"[_reason_loop] Fatal: {e}", exc_info=True)
+            return f"出了点小问题：{e}"
 
 
     def __init__(self, llm: LLMClient, bus: EventBus,
