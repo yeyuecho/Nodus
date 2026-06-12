@@ -50,7 +50,7 @@ class EmotionDetector:
         "urgent": "来了",
         "happy": "嘿嘿~",
         "sad": "嗯，在",
-        "neutral": "嗯",
+        "neutral": "好的",
     }
 
     _nlp_available: bool = None
