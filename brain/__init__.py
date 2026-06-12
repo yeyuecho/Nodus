@@ -52,6 +52,9 @@ class Brain:
     def register_tools(self, tools: dict):
         self._available_tools = tools
 
+    def register_skill_loader(self, skill_loader):
+        pass  # 技能引擎预留接口
+
     # ─── 进度显示 ───
 
     def _show_stage(self, stage: str):
