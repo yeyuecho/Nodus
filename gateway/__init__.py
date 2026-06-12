@@ -52,8 +52,9 @@ class MessageRouter:
         sid = self._session_id(msg)
         self.sessions.create_session(sid)
 
-        # ACK: LLM 生成，fire-and-forget
-        asyncio.create_task(self._ack(msg))
+        # ACK: LLM 生成（带短期记忆），fire-and-forget
+        recent = self.sessions.get_context(sid, limit=6)
+        asyncio.create_task(self._ack(msg, recent))
 
         # 追加消息 + 转发 brain
         self.sessions.append_message(sid, "user", msg.content)
@@ -61,22 +62,22 @@ class MessageRouter:
                        msg=msg, session_id=sid,
                        context=self.sessions.get_context(sid))
 
-    async def _ack(self, msg):
+    async def _ack(self, msg, recent=None):
         if not self.llm:
-            logger.warning("[ACK] no LLM client — ACK disabled")
             return
         logger.info(f"[ACK] start: '{msg.content[:30]}'")
         try:
             import time; t0 = time.time()
-            text = await self.llm.chat([
-                {"role": "system", "content": self.ACK_PROMPT},
-                {"role": "user", "content": msg.content},
-            ])
+            msgs = [{"role": "system", "content": self.ACK_PROMPT}]
+            if recent:
+                for m in recent:
+                    msgs.append({"role": m["role"], "content": m["content"][:200]})
+            msgs.append({"role": "user", "content": msg.content})
+            text = await self.llm.chat(msgs)
             dt = (time.time() - t0) * 1000
             text = text.strip()
             logger.info(f"[ACK] done ({dt:.0f}ms): '{text}'")
             if not text:
-                logger.warning("[ACK] empty — using fallback '嗯'")
                 text = "嗯"
         except Exception as e:
             logger.error(f"[ACK] FAIL: {type(e).__name__}: {e}")
