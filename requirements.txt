@@ -11,13 +11,15 @@ pycryptodome>=3.20      # 钉钉消息加解密
 pydantic>=2.0           # 数据校验
 
 # ─── 执行层 ───
-playwright>=1.48        # 浏览器自动化
 httpx>=0.27             # Web 请求
 pyyaml>=6.0             # SKILL.md 解析
+
+# ─── 可选 ───
+# playwright>=1.48      # 浏览器自动化（按需安装：pip install playwright）
 
 # ─── 记忆层 ───
 # SQLite3 内置，无需额外安装
 
-# ─── 开发 ───
-pytest>=8.0
-pytest-asyncio>=0.24
+# ─── 开发（可选）───
+# pytest>=8.0
+# pytest-asyncio>=0.24
