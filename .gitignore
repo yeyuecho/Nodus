@@ -29,3 +29,4 @@ Thumbs.db
 .DS_Store
 .env
 config.json
+data/sessions.db*
