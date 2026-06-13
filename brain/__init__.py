@@ -144,8 +144,8 @@ class Brain:
             tool_calls = resp.get("tool_calls") or []
             content = resp.get("content") or ""
 
-            # ACK: brain 的第一句话就是确认（同一轮 LLM 调用，不需要额外请求）
-            if iteration == 0 and content:
+            # ACK: 有工具时才发——没工具时回复本身秒到，再发就重复了
+            if iteration == 0 and content and tool_calls:
                 self.bus.emit("response.ready",
                                message_id=msg.id, content=content,
                                session_id=sid, platform=msg.platform,
