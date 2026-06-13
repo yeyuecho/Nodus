@@ -1,80 +1,69 @@
-# 柒月·合一 — 统一智能体
+# 灵枢 Nodus — 统一智能体
 
-> 将 nanobot (网关) + Hermes (思维) + OpenClaw (执行) 三体能力统一到一个 Python 进程中。
+将 Hermes（思维）、NanoBot（通讯）、OpenClaw（执行）三方核心能力合并为单一 Python 进程的统一智能体。
 
-## 目录结构
+## 架构
+
+```
+用户消息 → gateway（纯路由）
+              │
+              ▼
+           brain（一条 while 循环）
+              │
+    ┌─────────┼─────────┐
+    ▼         ▼         ▼
+  LLM调用  → ACK确认  → 工具执行 → 回复
+```
+
+## 快速开始
+
+### Windows
+
+```
+install.bat                     # 一键安装
+venv\Scripts\python main.py     # 启动
+```
+
+### 其他系统
+
+```
+python -m venv venv
+venv/bin/pip install -r requirements.txt
+cp .env.example .env              # 编辑填入 DEEPSEEK_API_KEY
+cp config.example.json config.json # 编辑填入通道凭证
+python main.py
+```
+
+## 配置
+
+| 文件 | 用途 |
+|------|------|
+| `.env` | `DEEPSEEK_API_KEY` |
+| `config.json` | 模型参数、通道凭证（钉钉/微信/飞书） |
+
+## 命令
+
+| 命令 | 说明 |
+|------|------|
+| `python main.py` | 启动（CLI + 通道） |
+| `python cli.py doctor` | 系统诊断 |
+| `python cli.py version` | 版本信息 |
+
+## 项目结构
 
 ```
 qiyue-heyi/
-├── main.py                 # 入口：组装三层 + 事件连线
-├── requirements.txt        # Python 依赖
-├── .env.example            # 环境变量模板
-│
-├── gateway/                # ① 通讯层 (来源: nanobot)
-│   ├── SOUL.md             #   网关核心身份
-│   ├── AGENTS.md           #   工作流定义
-│   ├── USER.md             #   用户画像
-│   ├── __init__.py         #   适配器 + 路由 + 会话
-│   └── adapters/           #   平台适配器实现
-│
-├── brain/                  # ② 思维层 (来源: Hermes)
-│   ├── SOUL.md             #   五大核心能力
-│   ├── AGENTS.md           #   规划 + 调度规范
-│   ├── __init__.py         #   IntentParser | TaskPlanner | MemoryManager | TaskRouter | SelfSkillEngine
-│   └── prompts/            #   LLM 提示词模板
-│
-├── executor/               # ③ 执行层 (来源: OpenClaw)
-│   ├── __init__.py         #   BrowserEngine | WebSearch | SkillLoader
-│   └── ...
-│
-├── shared/                 # ④ 共享模块
-│   └── core.py             #   EventBus | LLMClient | 类型定义
-│
-├── config/                 # 配置
-│   └── config.json         #   通道 + 模型配置
-│
-├── data/                   # 数据
-│   ├── sessions/           #   统一会话持久化
-│   └── memory/             #   全局记忆
-│
-└── skills/                 # 技能库 (SKILL.md)
+├── main.py              # 入口
+├── cli.py               # CLI 工具
+├── config/              # 默认配置
+├── brain/               # 思维层（LLM 循环 + 工具调用）
+├── gateway/             # 网关层（钉钉/微信/飞书适配器）
+├── executor/            # 执行层（Shell/文件/搜索/浏览器）
+├── shared/              # 共享层（LLM 客户端 + 事件总线）
+├── skills/              # 技能目录
+├── data/                # 运行时数据
+├── SOUL.md              # 灵魂定义
+├── MEMORY.md            # 长期记忆
+├── RULES.md             # 行为红线
+└── USER.md              # 用户画像
 ```
-
-## 数据流
-
-```
-用户消息 (钉钉/微信/飞书)
-    │
-    ▼
-Gateway.MessageRouter
-    ├── 硬编码 ACK 秒回 (~50ms)
-    └── EventBus → "message.received"
-        │
-        ▼
-Brain.handle()
-    ├── IntentParser.parse()          — 意图识别
-    ├── TaskPlanner.plan()            — 任务规划
-    ├── MemoryManager.search()        — 查历史经验
-    ├── TaskRouter.route()            — 自执行 vs 派发
-    ├── SelfSkillEngine.try_generate()— 新技能生成
-    └── LLM 推理 → 回复生成
-        │
-        ├── 代码/修复/系统 → Brain 亲自执行
-        └── 浏览器/搜索 → Executor 执行
-            │
-            ▼
-        EventBus → "response.ready"
-            │
-            ▼
-Gateway.MessageRouter.deliver()
-    └── 推送给用户
-```
-
-## 状态
-
-- [x] 框架骨架搭建
-- [x] 接口定义
-- [x] 事件总线设计
-- [ ] VM 环境测试
-- [ ] 适配器实现
-- [ ] 上线切换

@@ -1,0 +1,127 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": null,
+      "modelPreset": null,
+      "model": "deepseek-v4-flash",
+      "provider": "deepseek",
+      "maxTokens": 8192,
+      "contextWindowTokens": 65536,
+      "contextBlockLimit": null,
+      "temperature": 0.1,
+      "fallbackModels": [],
+      "maxToolIterations": 8,
+      "maxConcurrentSubagents": 1,
+      "maxToolResultChars": 16000,
+      "providerRetryMode": "standard",
+      "toolHintMaxLength": 40,
+      "reasoningEffort": null,
+      "timezone": "Asia/Shanghai",
+      "botName": "柒月",
+      "botIcon": "🐈",
+      "unifiedSession": true,
+      "disabledSkills": [],
+      "idleCompactAfterMinutes": 0,
+      "maxMessages": 120,
+      "consolidationRatio": 0.5,
+      "dream": {
+        "enabled": true,
+        "intervalH": 2,
+        "modelOverride": null,
+        "maxBatchSize": 20,
+        "maxIterations": 15,
+        "annotateLineAges": true
+      }
+    }
+  },
+  "channels": {
+    "sendProgress": true,
+    "sendToolHints": false,
+    "showReasoning": true,
+    "extractDocumentText": true,
+    "sendMaxRetries": 3,
+    "transcriptionProvider": "groq",
+    "transcriptionLanguage": null,
+    "dingtalk": {
+      "enabled": true,
+      "clientId": "ding46jaiejqmwabppv8",
+      "clientSecret": "your-dingtalk-secret",
+      "allowFrom": [
+        "*"
+      ],
+      "allowRemoteMediaRedirects": false,
+      "remoteMediaRedirectAllowedHosts": [],
+      "groupUserIsolation": false
+    },
+    "weixin": {
+      "enabled": true,
+      "token": "your-wechat-token",
+      "allowFrom": [
+        "*"
+      ]
+    },
+    "feishu": {
+      "enabled": true,
+      "appId": "cli_aa9fe7087b7b9ccb",
+      "appSecret": "your-feishu-secret",
+      "allowFrom": [
+        "*"
+      ]
+    }
+  },
+  "providers": {
+    "deepseek": {
+      "apiKey": "sk-your-deepseek-api-key",
+      "apiBase": "https://api.deepseek.com/v1",
+      "apiType": "auto",
+      "extraHeaders": null,
+      "extraBody": null
+    }
+  },
+  "api": {
+    "host": "127.0.0.1",
+    "port": 8900,
+    "timeout": 120.0
+  },
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 18791,
+    "heartbeat": {
+      "enabled": true,
+      "intervalS": 1800,
+      "keepRecentMessages": 8
+    }
+  },
+  "tools": {
+    "web": {
+      "enable": true,
+      "proxy": null,
+      "userAgent": null,
+      "search": {
+        "provider": "duckduckgo",
+        "apiKey": "",
+        "baseUrl": "",
+        "maxResults": 5,
+        "timeout": 30
+      },
+      "fetch": {
+        "useJinaReader": true
+      }
+    },
+    "exec": {
+      "enable": false
+    },
+    "cliApps": {
+      "enable": false
+    },
+    "my": {
+      "enable": false
+    },
+    "imageGeneration": {
+      "enabled": false
+    },
+    "restrictToWorkspace": false,
+    "mcpServers": {}
+  },
+  "model_presets": {}
+}
