@@ -27,3 +27,5 @@ data/memory/user_preferences.json
 # 系统
 Thumbs.db
 .DS_Store
+.env
+config.json

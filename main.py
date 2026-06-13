@@ -156,6 +156,8 @@ async def main():
         if channel_config.get("feishu_app_id"):
             adapters.append(FeishuAdapter(channel_config["feishu_app_id"], channel_config["feishu_app_secret"]))
         logger.info(f"[Gateway] {len(adapters)} real adapters loaded")
+        for adapter in adapters:
+            asyncio.create_task(adapter.start())
     else:
         # 测试模式：仅控制台输出
         adapters = [ConsoleAdapter()]
@@ -168,10 +170,12 @@ async def main():
     if is_serve:
         async def on_webhook_message(msg):
             await gateway.route(msg)
-        webhook = WebhookServer(host="0.0.0.0", port=18791, on_message=on_webhook_message)
+        port = int(os.getenv("GATEWAY_PORT", "18791"))
+        webhook = WebhookServer(host="0.0.0.0", port=port, on_message=on_webhook_message)
         await webhook.start()
     else:
         webhook = None
+    port = int(os.getenv("GATEWAY_PORT", "18791"))
 
     # 6. 思维层 — 注入统一人设
     brain = Brain(llm, bus, sessions, executor=executor, memory=memory,
@@ -208,7 +212,7 @@ async def main():
 
     logger.info("=" * 50)
     logger.info("✅ 柒月·合一 已就绪")
-    logger.info(f"   Webhook: http://0.0.0.0:18791")
+    logger.info(f"   Webhook: http://0.0.0.0:{port}")
     logger.info(f"   Gateway: {len(adapters)} 通道")
     logger.info(f"   Brain: {DEFAULT_PERSONA.name} @ {llm_config.model}")
     logger.info(f"   Persona: {', '.join(DEFAULT_PERSONA.traits[:3])}")
@@ -216,40 +220,31 @@ async def main():
     logger.info(f"   Cron: {len(cron._jobs)} jobs")
     logger.info("=" * 50)
 
-    # 6. CLI 交互测试模式
+    # 6. 交互测试模式
     import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "--serve":
-        # 纯服务模式（不交互）
-        logger.info("Server mode. Press Ctrl+C to stop.")
-        try:
-            await asyncio.Event().wait()
-        except (KeyboardInterrupt, asyncio.CancelledError):
-            pass
-    else:
-        # 交互模式
-        logger.info("\n" + "=" * 50)
-        logger.info("输入消息测试 (输入 quit 退出):")
-        logger.info("=" * 50 + "\n")
-        loop = asyncio.get_running_loop()
+    print(f"\n  Nodus → http://0.0.0.0:{port}")
+    print(f"  通道: {len(adapters)} 个适配器")
+    print(f"  输入消息测试 (输入 quit 退出)\n")
+    loop = asyncio.get_running_loop()
+    try:
         while True:
-            try:
-                user_input = await loop.run_in_executor(None, input, "\n你> ")
-                if user_input.lower() in ("quit", "exit", "q"):
-                    break
-                if not user_input.strip():
-                    continue
-                from shared.core import IncomingMessage
-                test_msg = IncomingMessage(
-                    id=f"test_{int(time.time()*1000)}",
-                    platform=Platform.DINGTALK,
-                    channel_id="cli-test",
-                    sender_id="user",
-                    content=user_input,
-                    timestamp=time.time(),
-                )
-                await gateway.route(test_msg)
-            except (KeyboardInterrupt, EOFError):
+            user_input = await loop.run_in_executor(None, input, "你> ")
+            if user_input.lower() in ("quit", "exit", "q"):
                 break
+            if not user_input.strip():
+                continue
+            from shared.core import IncomingMessage
+            test_msg = IncomingMessage(
+                id=f"test_{int(time.time()*1000)}",
+                platform=Platform.DINGTALK,
+                channel_id="cli-test",
+                sender_id="user",
+                content=user_input,
+                timestamp=time.time(),
+            )
+            await gateway.route(test_msg)
+    except (KeyboardInterrupt, EOFError):
+        print("\n  正在关闭...")
 
     # 10. 关闭
     logger.info("Shutting down...")
