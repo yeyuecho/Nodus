@@ -37,48 +37,50 @@ def cmd_setup(args):
     print("=" * 40)
 
     v = sys.version_info
-    print(f"[1/5] Python {v.major}.{v.minor}.{v.micro} — ",
+    print(f"[1/4] Python {v.major}.{v.minor}.{v.micro} — ",
           "[OK]" if v >= (3, 11) else "[FAIL] 需要 3.11+")
     if v < (3, 11):
         return 1
 
-    venv_path = PROJECT_ROOT / "venv"
-    if not venv_path.exists():
-        print("[2/5] 创建虚拟环境...")
-        subprocess.run([sys.executable, "-m", "venv", str(venv_path)], check=True)
-        print("   [OK]")
-    else:
-        print("[2/5] 虚拟环境已存在 [OK]")
-
-    print("[3/5] 安装依赖...")
-    pip = str(venv_path / "Scripts" / "pip.exe")
-    subprocess.run([pip, "install", "-r", str(PROJECT_ROOT / "requirements.txt")], check=False)
-    subprocess.run([pip, "install", "-e", str(PROJECT_ROOT)], check=False)
-    print("   [OK] nodus 命令已注册")
+    print("[2/4] 安装依赖 + 注册 nodus 命令...")
+    subprocess.run([sys.executable, "-m", "pip", "install", "-e", str(PROJECT_ROOT)], check=False)
+    print("   [OK] nodus 命令已全局可用")
 
     env_path = PROJECT_ROOT / ".env"
     config_path = PROJECT_ROOT / "config.json"
-    print("[4/5] 配置文件...")
-    if not env_path.exists():
-        env_example = PROJECT_ROOT / ".env.example"
-        shutil.copy(env_example, env_path) if env_example.exists() else env_path.write_text(
-            "# 灵枢 Nodus\nDEEPSEEK_API_KEY=***\nDEEPSEEK_MODEL=deepseek-v4-pro\n")
-        print(f"   [WARN] 请编辑 .env 填入 DEEPSEEK_API_KEY: {env_path}")
+
+    print("[3/4] 配置 API Key...")
+    if not env_path.exists() or "***" in env_path.read_text(encoding="utf-8"):
+        key = input("   请输入 DEEPSEEK_API_KEY（直接粘贴）: ").strip()
+        if key:
+            env_path.write_text(
+                f"# 灵枢 Nodus\nDEEPSEEK_API_KEY={key}\nDEEPSEEK_MODEL=deepseek-v4-pro\n",
+                encoding="utf-8")
+            print("   [OK] 已保存")
+        else:
+            print("   [WARN] 跳过，稍后可用 nodus config --set 配置")
     else:
-        print("   .env [OK]")
+        print("   [OK] 已配置")
+
+    print("[4/4] 配置通道凭证...")
     if not config_path.exists():
         example = PROJECT_ROOT / "config.example.json"
-        shutil.copy(example, config_path) if example.exists() else None
-        print(f"   [WARN] 请编辑 config.json 填入通道凭证: {config_path}")
+        if example.exists():
+            shutil.copy(example, config_path)
+            print(f"   [WARN] 请编辑 config.json 填入钉钉/微信/飞书凭证")
+            print(f"         文件: {config_path}")
+        else:
+            print("   [WARN] config.example.json 不存在，跳过")
     else:
-        print("   config.json [OK]")
+        print("   [OK] 已存在")
 
-    print("[5/5] CLI 就绪")
     print()
-    print("  下一步:")
-    print("    1. 编辑 .env / config.json 填入凭证")
-    print("    2. nodus doctor  检查环境")
-    print("    3. nodus start   启动")
+    print("=" * 40)
+    print("  安装完成！")
+    print()
+    print("  nodus doctor  检查环境")
+    print("  nodus start   启动")
+    print("=" * 40)
     return 0
 
 
