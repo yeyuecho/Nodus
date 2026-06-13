@@ -52,9 +52,9 @@ def cmd_setup(args):
 
     print("[3/5] 安装依赖...")
     pip = str(venv_path / "Scripts" / "pip.exe")
-    subprocess.run([pip, "install", "-e", str(PROJECT_ROOT), "-q"], check=False)
     subprocess.run([pip, "install", "-r", str(PROJECT_ROOT / "requirements.txt"), "-q"], check=False)
-    print("   [OK]")
+    subprocess.run([pip, "install", "-e", str(PROJECT_ROOT), "-q"], check=False)
+    print("   [OK] nodus 命令已注册")
 
     env_path = PROJECT_ROOT / ".env"
     config_path = PROJECT_ROOT / "config.json"
