@@ -344,7 +344,7 @@ TOOLSETS = {
     # which is gated on gateway running via its check_fn).
     # ==========================================================================
 
-    "Nodus-acp": {
+    "nodus-acp": {
         "description": "Editor integration (VS Code, Zed, JetBrains) — coding-focused tools without messaging, audio, or clarify UI",
         "tools": [
             "web_search", "web_extract",
@@ -363,7 +363,7 @@ TOOLSETS = {
         "includes": []
     },
 
-    "Nodus-api-server": {
+    "nodus-api-server": {
         "description": "OpenAI-compatible API server — full agent tools accessible via HTTP (no interactive UI tools like clarify or send_message)",
         "tools": [
             # Web
@@ -396,13 +396,13 @@ TOOLSETS = {
         "includes": []
     },
     
-    "Nodus-cli": {
+    "nodus-cli": {
         "description": "Full interactive CLI toolset - all default tools plus cronjob management",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-cron": {
+    "nodus-cron": {
         # Mirrors Nodus-cli so cron's "default" toolset is the same set of
         # core tools users see interactively — then `Nodus tools` filters
         # them down per the platform config. _DEFAULT_OFF_TOOLSETS (moa,
@@ -413,13 +413,13 @@ TOOLSETS = {
         "includes": []
     },
 
-    "Nodus-telegram": {
+    "nodus-telegram": {
         "description": "Telegram bot toolset - full access for personal use (terminal has safety checks)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
     
-    "Nodus-discord": {
+    "nodus-discord": {
         "description": "Discord bot toolset - full access (terminal has safety checks via dangerous command approval)",
         "tools": _HERMES_CORE_TOOLS + [
             "discord",
@@ -428,61 +428,61 @@ TOOLSETS = {
         "includes": []
     },
     
-    "Nodus-whatsapp": {
+    "nodus-whatsapp": {
         "description": "WhatsApp bot toolset - similar to Telegram (personal messaging, more trusted)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
     
-    "Nodus-slack": {
+    "nodus-slack": {
         "description": "Slack bot toolset - full access for workspace use (terminal has safety checks)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
     
-    "Nodus-signal": {
+    "nodus-signal": {
         "description": "Signal bot toolset - encrypted messaging platform (full access)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-bluebubbles": {
+    "nodus-bluebubbles": {
         "description": "BlueBubbles iMessage bot toolset - Apple iMessage via local BlueBubbles server",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-homeassistant": {
+    "nodus-homeassistant": {
         "description": "Home Assistant bot toolset - smart home event monitoring and control",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-email": {
+    "nodus-email": {
         "description": "Email bot toolset - interact with Nodus via email (IMAP/SMTP)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-mattermost": {
+    "nodus-mattermost": {
         "description": "Mattermost bot toolset - self-hosted team messaging (full access)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-matrix": {
+    "nodus-matrix": {
         "description": "Matrix bot toolset - decentralized encrypted messaging (full access)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-dingtalk": {
+    "nodus-dingtalk": {
         "description": "DingTalk bot toolset - enterprise messaging platform (full access)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-feishu": {
+    "nodus-feishu": {
         "description": "Feishu/Lark bot toolset - enterprise messaging via Feishu/Lark (full access)",
         "tools": _HERMES_CORE_TOOLS + [
             "feishu_doc_read",
@@ -494,31 +494,31 @@ TOOLSETS = {
         "includes": []
     },
 
-    "Nodus-weixin": {
+    "nodus-weixin": {
         "description": "Weixin bot toolset - personal WeChat messaging via iLink (full access)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-qqbot": {
+    "nodus-qqbot": {
         "description": "QQBot toolset - QQ messaging via Official Bot API v2 (full access)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-wecom": {
+    "nodus-wecom": {
         "description": "WeCom bot toolset - enterprise WeChat messaging (full access)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-wecom-callback": {
+    "nodus-wecom-callback": {
         "description": "WeCom callback toolset - enterprise self-built app messaging (full access)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-yuanbao": {
+    "nodus-yuanbao": {
         "description": "Yuanbao Bot 元宝消息平台工具集 - 群信息、成员查询、私聊、贴纸表情",
         "tools": _HERMES_CORE_TOOLS + [
             "yb_query_group_info",
@@ -531,22 +531,22 @@ TOOLSETS = {
         "includes": []
     },
 
-    "Nodus-sms": {
+    "nodus-sms": {
         "description": "SMS bot toolset - interact with Nodus via SMS (Twilio)",
         "tools": _HERMES_CORE_TOOLS,
         "includes": []
     },
 
-    "Nodus-webhook": {
+    "nodus-webhook": {
         "description": "Webhook toolset - receive and process external webhook events",
         "tools": _HERMES_WEBHOOK_SAFE_TOOLS,
         "includes": []
     },
 
-    "Nodus-gateway": {
+    "nodus-gateway": {
         "description": "Gateway toolset - union of all messaging platform tools",
         "tools": [],
-        "includes": ["Nodus-telegram", "Nodus-discord", "Nodus-whatsapp", "Nodus-slack", "Nodus-signal", "Nodus-bluebubbles", "Nodus-homeassistant", "Nodus-email", "Nodus-sms", "Nodus-mattermost", "Nodus-matrix", "Nodus-dingtalk", "Nodus-feishu", "Nodus-wecom", "Nodus-wecom-callback", "Nodus-weixin", "Nodus-qqbot", "Nodus-webhook", "Nodus-yuanbao"]
+        "includes": ["nodus-telegram", "nodus-discord", "nodus-whatsapp", "nodus-slack", "nodus-signal", "nodus-bluebubbles", "nodus-homeassistant", "nodus-email", "nodus-sms", "nodus-mattermost", "nodus-matrix", "nodus-dingtalk", "nodus-feishu", "nodus-wecom", "nodus-wecom-callback", "nodus-weixin", "nodus-qqbot", "nodus-webhook", "nodus-yuanbao"]
     }
 }
 
@@ -644,8 +644,8 @@ def resolve_toolset(name: str, visited: Set[str] = None) -> List[str]:
         # Auto-generate a toolset for plugin platforms (Nodus-<name>).
         # Gives them _HERMES_CORE_TOOLS plus any tools the plugin registered
         # into a toolset matching the platform name.
-        if name.startswith("Nodus-"):
-            platform_name = name[len("Nodus-"):]
+        if name.startswith("nodus-"):
+            platform_name = name[len("nodus-"):]
             try:
                 from nodus.gateway.platform_registry import platform_registry
                 if platform_registry.is_registered(platform_name):
