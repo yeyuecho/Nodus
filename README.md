@@ -31,14 +31,18 @@ and smart home control (Xiaomi WiFi direct).
 
 Default HTTP port: 18789
 
-## Redeploy from GitHub
+## Redeploy from GitHub (from zero to running)
 
-  # Backup current config
-  xcopy /E %USERPROFILE%\.nodus %USERPROFILE%\.nodus_backup
-  # Clone and install
   git clone git@github.com:yeyuecho/Nodus.git
   cd Nodus
   uv sync
+
+  cp .env.example .env
+  # Edit .env and fill in your DEEPSEEK_API_KEY
+
+  # Copy your existing config backup, or create fresh:
+  # nodus setup
+
   nodus gateway
 
 ## Supported Platforms
