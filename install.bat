@@ -17,7 +17,7 @@ if not exist venv (
 
 REM Activate and install
 call venv\Scripts\activate.bat
-pip install -e . -q
+pip install . -q
 echo.
 echo === Done ===
 echo Run: nodus chat
