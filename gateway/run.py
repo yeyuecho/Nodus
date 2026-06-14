@@ -1144,6 +1144,7 @@ from nodus.gateway.restart import (
     GATEWAY_SERVICE_RESTART_EXIT_CODE,
     parse_restart_drain_timeout,
 )
+from nodus.gateway.pre_ack import send_pre_ack
 
 
 from nodus.gateway.whatsapp_identity import (
@@ -1575,7 +1576,7 @@ def _resolve_hermes_bin() -> Optional[list[str]]:
 
     Tries in order:
     1. ``shutil.which("Nodus")`` — standard PATH lookup
-    2. ``sys.executable -m hermes_cli.main`` — fallback when Nodus is running
+    2. ``sys.executable -m nodus_cli.main`` — fallback when Nodus is running
        from a venv/module invocation and the ``Nodus`` shim is not on PATH
 
     Returns argv parts ready for quoting/joining, or ``None`` if neither works.
@@ -1589,8 +1590,8 @@ def _resolve_hermes_bin() -> Optional[list[str]]:
     try:
         import importlib.util
 
-        if importlib.util.find_spec("hermes_cli") is not None:
-            return [sys.executable, "-m", "hermes_cli.main"]
+        if importlib.util.find_spec("nodus_cli") is not None:
+            return [sys.executable, "-m", "nodus_cli.main"]
     except Exception:
         pass
 
@@ -7394,7 +7395,7 @@ class GatewayRunner:
         # session resolves the clarify and unblocks the agent thread —
         # we do NOT route it to the agent as a new turn.
         try:
-            from tools import clarify_gateway as _clarify_mod
+            from nodus.tools import clarify_gateway as _clarify_mod
             _pending_clarify = _clarify_mod.get_pending_for_session(_quick_key)
         except Exception:
             _pending_clarify = None
@@ -7428,7 +7429,7 @@ class GatewayRunner:
         # blocked inside tools/approval.py), the tool approval takes
         # precedence — /approve there unblocks the waiting tool thread.
         # Slash-confirm only catches /approve when no tool approval is live.
-        from tools import slash_confirm as _slash_confirm_mod
+        from nodus.tools import slash_confirm as _slash_confirm_mod
         _pending_confirm = _slash_confirm_mod.get_pending(_quick_key)
         _tool_approval_live = False
         try:
@@ -9285,6 +9286,13 @@ class GatewayRunner:
             await self.hooks.emit("agent:start", hook_ctx)
 
             # Run the agent
+            # Pre-ACK: lightweight acknowledgment before main agent
+            try:
+                _pre_ack_adapter = self.adapters.get(source.platform)
+                if _pre_ack_adapter:
+                    await send_pre_ack(message_text, _pre_ack_adapter, source.chat_id)
+            except Exception:
+                logger.debug("pre_ack dispatch failed", exc_info=True)
             agent_result = await self._run_agent(
                 message=message_text,
                 context_prompt=context_prompt,
@@ -14411,7 +14419,7 @@ class GatewayRunner:
         is ``None`` (buttons are self-explanatory); if we fell back to
         text the message itself IS the ack.
         """
-        from tools import slash_confirm as _slash_confirm_mod
+        from nodus.tools import slash_confirm as _slash_confirm_mod
 
         source = event.source
         session_key = self._session_key_for_source(source)
@@ -16084,7 +16092,7 @@ class GatewayRunner:
             update_prompt_pending.pop(session_key, None)
 
         try:
-            from tools import slash_confirm as _slash_confirm_mod
+            from nodus.tools import slash_confirm as _slash_confirm_mod
         except Exception:
             _slash_confirm_mod = None
         if _slash_confirm_mod is not None:
@@ -17668,7 +17676,7 @@ class GatewayRunner:
             # rather than hang forever).
             # ------------------------------------------------------------------
             def _clarify_callback_sync(question: str, choices) -> str:
-                from tools import clarify_gateway as _clarify_mod
+                from nodus.tools import clarify_gateway as _clarify_mod
                 import uuid as _uuid
 
                 if not _status_adapter:

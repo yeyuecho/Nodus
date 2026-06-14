@@ -6,8 +6,8 @@ This transport owns format conversion and normalization — NOT client lifecycle
 
 from typing import Any, Dict, List, Optional
 
-from nodus.agent.transports.base import ProviderTransport
-from nodus.agent.transports.types import NormalizedResponse
+from .base import ProviderTransport
+from .types import NormalizedResponse
 
 
 class AnthropicTransport(ProviderTransport):
@@ -84,8 +84,8 @@ class AnthropicTransport(ProviderTransport):
         to OpenAI finish_reason, and collects reasoning_details in provider_data.
         """
         import json
-        from nodus.agent.anthropic_adapter import _to_plain_data
-        from nodus.agent.transports.types import ToolCall
+        from ..anthropic_adapter import _to_plain_data
+        from .types import ToolCall
 
         strip_tool_prefix = kwargs.get("strip_tool_prefix", False)
         _MCP_PREFIX = "mcp_"

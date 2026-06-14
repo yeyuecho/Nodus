@@ -7,8 +7,8 @@ streaming, or the _run_codex_stream() call path.
 
 from typing import Any, Dict, List, Optional
 
-from nodus.agent.transports.base import ProviderTransport
-from nodus.agent.transports.types import NormalizedResponse, ToolCall
+from .base import ProviderTransport
+from .types import NormalizedResponse, ToolCall
 
 
 class ResponsesApiTransport(ProviderTransport):

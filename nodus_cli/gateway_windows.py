@@ -48,7 +48,17 @@ _FALLBACK_PATTERNS = re.compile(
 )
 _ACCESS_DENIED_PATTERN = re.compile(r"(access is denied|acceso denegado)", re.IGNORECASE)
 
-_TASK_NAME_DEFAULT = "Hermes_Gateway"
+def _default_task_name() -> str:
+    """Derive task name from package metadata, not hardcoded."""
+    try:
+        from importlib.metadata import metadata
+        name = metadata("nodus")["Name"]
+        return f"{name.title()}_Gateway"
+    except Exception:
+        return "Nodus_Gateway"
+
+
+_TASK_NAME_DEFAULT = _default_task_name()
 _TASK_DESCRIPTION = "Nodus Gateway - Messaging Platform Integration"
 
 
@@ -158,7 +168,7 @@ def _launch_elevated_gateway_command(command: str, extra_args: list[str] | None 
     decisions are already collected in the parent shell before this point.
     """
     _assert_windows()
-    args = ["-m", "hermes_cli.main", *_current_profile_cli_args(), "gateway", command]
+    args = ["-m", "nodus_cli.main", *_current_profile_cli_args(), "gateway", command]
     if extra_args:
         args.extend(extra_args)
     params = subprocess.list2cmdline(args)
@@ -320,7 +330,7 @@ def _build_gateway_cmd_script(
     lines.append(f'set "VIRTUAL_ENV={venv_dir}"')
 
     pythonw_path = _derive_venv_pythonw(python_path)
-    prog_args = [pythonw_path, "-m", "hermes_cli.main"]
+    prog_args = [pythonw_path, "-m", "nodus_cli.main"]
     if profile_arg:
         prog_args.extend(profile_arg.split())
     prog_args.extend(["gateway", "run"])
@@ -530,7 +540,7 @@ def _build_gateway_argv() -> tuple[list[str], str, dict[str, str]]:
     hermes_home = str(Path(get_hermes_home()).resolve())
     profile_arg = _profile_arg(hermes_home)
 
-    argv = [python_exe, "-m", "hermes_cli.main"]
+    argv = [python_exe, "-m", "nodus_cli.main"]
     if profile_arg:
         argv.extend(profile_arg.split())
     argv.extend(["gateway", "run"])

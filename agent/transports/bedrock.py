@@ -8,8 +8,8 @@ boto3 calls stay on AIAgent.
 
 from typing import Any, Dict, List, Optional
 
-from nodus.agent.transports.base import ProviderTransport
-from nodus.agent.transports.types import NormalizedResponse, ToolCall, Usage
+from .base import ProviderTransport
+from .types import NormalizedResponse, ToolCall, Usage
 
 
 class BedrockTransport(ProviderTransport):

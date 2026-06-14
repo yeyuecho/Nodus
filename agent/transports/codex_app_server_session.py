@@ -31,13 +31,13 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from nodus.agent.codex_responses_adapter import _format_responses_error
-from nodus.agent.redact import redact_sensitive_text
-from nodus.agent.transports.codex_app_server import (
+from ..codex_responses_adapter import _format_responses_error
+from ..redact import redact_sensitive_text
+from .codex_app_server import (
     CodexAppServerClient,
     CodexAppServerError,
 )
-from nodus.agent.transports.codex_event_projector import CodexEventProjector
+from .codex_event_projector import CodexEventProjector
 
 logger = logging.getLogger(__name__)
 

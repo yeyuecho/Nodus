@@ -27,7 +27,7 @@ dependencies = [
 nodus = "nodus_cli.main:main"
 
 [tool.setuptools]
-py-modules = ["main", "model_tools", "toolsets", "batch_runner", "cli", "nodus_constants", "nodus_state", "nodus_time", "nodus_logging", "nodus_utils", "nodus_bootstrap"]
+py-modules = ["main", "model_tools", "toolsets", "batch_runner", "cli", "run_agent", "nodus_constants", "nodus_state", "nodus_time", "nodus_logging", "nodus_utils", "nodus_bootstrap"]
 
 [tool.setuptools.packages.find]
-include = ["agent", "agent.*", "cli", "nodus_cli", "nodus_cli.*", "gateway", "gateway.*", "executor", "executor.*", "cron", "cron.*", "utils", "utils.*", "config", "config.*", "session", "session.*", "skills", "skills.*", "bridge", "bridge.*", "security", "security.*", "command", "command.*", "apps", "apps.*", "web", "web.*", "webui", "webui.*", "templates", "templates.*", "api", "api.*", "pairing", "pairing.*", "plugins", "plugins.*", "providers", "providers.*"]
+include = ["agent", "agent.*", "cli", "nodus_cli", "nodus_cli.*", "gateway", "gateway.*", "executor", "executor.*", "tools", "tools.*", "cron", "cron.*", "utils", "utils.*", "config", "config.*", "session", "session.*", "skills", "skills.*", "bridge", "bridge.*", "security", "security.*", "command", "command.*", "apps", "apps.*", "web", "web.*", "webui", "webui.*", "templates", "templates.*", "api", "api.*", "pairing", "pairing.*", "plugins", "plugins.*", "providers", "providers.*"]

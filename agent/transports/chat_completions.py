@@ -12,11 +12,11 @@ reasoning configuration, temperature handling, and extra_body assembly.
 import copy
 from typing import Any, Dict
 
-from nodus.agent.lmstudio_reasoning import resolve_lmstudio_effort
-from nodus.agent.moonshot_schema import is_moonshot_model, sanitize_moonshot_tools
-from nodus.agent.prompt_builder import DEVELOPER_ROLE_MODELS
-from nodus.agent.transports.base import ProviderTransport
-from nodus.agent.transports.types import NormalizedResponse, ToolCall, Usage
+from ..lmstudio_reasoning import resolve_lmstudio_effort
+from ..moonshot_schema import is_moonshot_model, sanitize_moonshot_tools
+from ..prompt_builder import DEVELOPER_ROLE_MODELS
+from .base import ProviderTransport
+from .types import NormalizedResponse, ToolCall, Usage
 
 
 def _build_gemini_thinking_config(model: str, reasoning_config: dict | None) -> dict | None:

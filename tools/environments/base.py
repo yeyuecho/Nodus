@@ -441,6 +441,16 @@ class BaseEnvironment(ABC):
 
         # Preserve bare ``~`` expansion, but rewrite ``~/...`` through
         # ``$HOME`` so suffixes with spaces remain a single shell word.
+        # If terminal runs in WSL2, convert Windows paths to Linux format.
+        if cwd and len(cwd) >= 2 and cwd[1] == ":":
+            try:
+                from agent.prompt_builder import _probed_terminal_is_wsl
+                if _probed_terminal_is_wsl:
+                    drive = cwd[0].lower()
+                    rest = cwd[2:].replace("\\", "/")
+                    cwd = f"/mnt/{drive}{rest}"
+            except ImportError:
+                pass
         quoted_cwd = self._quote_cwd_for_cd(cwd)
         # ``--`` keeps hyphen-prefixed directory names from being parsed as options.
         parts.append(f"builtin cd -- {quoted_cwd} || exit 126")

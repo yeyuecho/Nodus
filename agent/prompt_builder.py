@@ -671,13 +671,87 @@ _BACKEND_FALLBACK_DESCRIPTIONS: dict[str, str] = {
 # across Nodus restarts.
 _BACKEND_PROBE_CACHE: dict[tuple[str, str], str] = {}
 
+# Probed terminal sandbox cwd — used by terminal tool for path conversion
+_probed_terminal_cwd: str | None = None
+_probed_terminal_is_wsl: bool = False
+
+
+def _probe_local_shell() -> dict[str, str]:
+    """Run a probe script in the actual terminal shell to detect the environment.
+
+    Uses ``_find_bash()`` to locate the real bash binary, then runs a probe
+    script that checks /proc/version (WSL2 detection) and MSYSTEM (git-bash).
+
+    Returns a dict with keys: os, is_wsl, is_gitbash, shell, arch, cwd.
+    Cached per process.  Also updates global _probed_terminal_* vars.
+    """
+    global _probed_terminal_cwd, _probed_terminal_is_wsl
+    cache_key = ("local_shell_probe_v2", "")
+    cached = _BACKEND_PROBE_CACHE.get(cache_key)
+    if cached is not None:
+        import json
+        try:
+            return json.loads(cached) if cached else {}
+        except Exception:
+            pass
+
+    result: dict[str, str] = {}
+    try:
+        from tools.environments.local import _find_bash  # no circular import at prompt-build time
+        bash = _find_bash()
+    except Exception:
+        bash = None
+
+    if not bash or not os.path.isfile(bash):
+        _BACKEND_PROBE_CACHE[cache_key] = ""
+        return result
+
+    probe_script = (
+        "echo \"UNAME=$(uname -s)\"\n"
+        "echo \"KERNEL=$(uname -r)\"\n"
+        "echo \"IS_WSL=$(grep -ci microsoft /proc/version 2>/dev/null || echo 0)\"\n"
+        "echo \"IS_GITBASH=$([ -n \"$MSYSTEM\" ] && echo \"$MSYSTEM\" || echo 0)\"\n"
+        "echo \"SHELL=$(basename \"$SHELL\" 2>/dev/null || echo unknown)\"\n"
+        "echo \"ARCH=$(uname -m)\"\n"
+        "echo \"CWD=$(pwd)\"\n"
+        "echo \"USER=$(whoami 2>/dev/null || id -un 2>/dev/null || echo unknown)\"\n"
+    )
+
+    try:
+        import subprocess
+        proc = subprocess.run(
+            [bash, "-c", probe_script],
+            capture_output=True, text=True, timeout=8,
+            cwd=os.getcwd(),
+        )
+        if proc.returncode != 0 or not proc.stdout.strip():
+            _BACKEND_PROBE_CACHE[cache_key] = ""
+            return result
+
+        for line in proc.stdout.strip().splitlines():
+            if "=" in line:
+                k, _, v = line.partition("=")
+                result[k.strip()] = v.strip()
+
+        import json
+        _BACKEND_PROBE_CACHE[cache_key] = json.dumps(result)
+        # Save for terminal path conversion
+        _probed_terminal_cwd = result.get("CWD") or None
+        _probed_terminal_is_wsl = result.get("IS_WSL", "0") != "0"
+    except Exception as e:
+        logger.debug("Local shell probe failed: %s", e)
+        _BACKEND_PROBE_CACHE[cache_key] = ""
+
+    return result
+
 
 _WINDOWS_BASH_SHELL_HINT = (
     "Shell: on this Windows host your `terminal` tool runs commands through "
-    "bash (git-bash / MSYS), NOT PowerShell or cmd.exe. Use POSIX shell "
-    "syntax (`ls`, `$HOME`, `&&`, `|`, single-quoted strings) inside terminal "
-    "calls. MSYS-style paths like `/c/Users/<user>/...` work alongside "
-    "native `C:\\Users\\<user>\\...` paths. PowerShell builtins "
+    "bash (git-bash / MSYS), NOT PowerShell or cmd.exe. This is still a "
+    "Windows machine — you are NOT in Linux, WSL, or a container. Use POSIX "
+    "shell syntax (`ls`, `$HOME`, `&&`, `|`, single-quoted strings) inside "
+    "terminal calls. MSYS-style paths like `/c/Users/<user>/...` work "
+    "alongside native `C:\\Users\\<user>\\...` paths. PowerShell builtins "
     "(`Get-ChildItem`, `$env:FOO`, `Select-String`) will NOT work — use their "
     "POSIX equivalents (`ls`, `$FOO`, `grep`)."
 )
@@ -814,12 +888,37 @@ def build_environment_hints() -> str:
                 "above to construct paths under C:\\Users\\<user>\\, never the "
                 "hostname."
             )
-        hints.append("\n".join(host_lines))
+        host_block = "\n".join(host_lines)
+        hints.append(f"[Nodus host]\n{host_block}")
 
-        # Windows-local terminal runs bash, not PowerShell — the model must
-        # know this or it will issue PowerShell syntax and fail.
+        # Terminal sandbox — probe actual shell, not hardcoded
         if sys.platform == "win32" and not is_wsl():
-            hints.append(_WINDOWS_BASH_SHELL_HINT)
+            probe = _probe_local_shell()
+            is_wsl2 = probe.get("IS_WSL", "0") != "0"
+            is_gitbash = probe.get("IS_GITBASH", "0") != "0"
+
+            if is_wsl2:
+                shell = probe.get("SHELL", "bash")
+                cwd = probe.get("CWD", "/home/user")
+                user = probe.get("USER", "user")
+                hints.append(
+                    f"[Terminal sandbox]\n"
+                    f"Shell: WSL2 Linux ({shell})\n"
+                    f"User: {user}  CWD: {cwd}\n"
+                    f"Use POSIX shell syntax. Windows paths (C:\\...) are NOT valid "
+                    f"here — use Linux paths. Windows files at /mnt/c/...\n"
+                    f"PowerShell builtins will NOT work."
+                )
+            elif is_gitbash:
+                hints.append(
+                    f"[Terminal sandbox]\n"
+                    f"Shell: git-bash / MSYS2 ({probe.get('IS_GITBASH', 'MINGW64')})\n"
+                    f"User: {probe.get('USER', 'user')}  CWD: {probe.get('CWD', '/c/Users')}\n"
+                    f"Use POSIX shell syntax. Both /c/... and C:\\... paths work.\n"
+                    f"PowerShell builtins will NOT work."
+                )
+            else:
+                hints.append(f"[Terminal sandbox]\n{_WINDOWS_BASH_SHELL_HINT}")
     else:
         # --- Remote backend block (host info suppressed) ---
         probe = _probe_remote_backend(backend)

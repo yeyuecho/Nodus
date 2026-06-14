@@ -7062,7 +7062,7 @@ def _find_stale_dashboard_pids() -> list[int]:
     """
     patterns = [
         "Nodus dashboard",
-        "hermes_cli.main dashboard",
+        "nodus_cli.main dashboard",
         "hermes_cli/main.py dashboard",
     ]
     self_pid = os.getpid()
