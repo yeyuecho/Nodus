@@ -1,0 +1,18 @@
+{
+  "name": "ppt",
+  "version": "1.0.0",
+  "description": "Generate PowerPoint presentations from markdown or structured data using python-pptx",
+  "category": "AUTOMATION",
+  "author": "local",
+  "tags": ["ppt", "powerpoint", "presentation", "slides"],
+  "entry": "ppt_generator.py",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "title": {"type": "string", "description": "Presentation title"},
+      "slides": {"type": "array", "description": "Array of slide content objects"},
+      "output_path": {"type": "string", "description": "Output file path for the .pptx file"}
+    },
+    "required": ["title", "slides", "output_path"]
+  }
+}

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nodus"
+version = "0.15.1"
+description = "灵枢 Nodus — unified agent"
+requires-python = ">=3.11"
+dependencies = [
+    "loguru",
+    "pyyaml",
+    "openai>=1.0.0",
+    "aiohttp>=3.9",
+    "httpx>=0.27",
+    "pydantic>=2.0",
+    "tiktoken",
+    "pycryptodome",
+    "filelock",
+    "pydantic-settings",
+    "lark-oapi",
+    "prompt-toolkit",
+    "rich",
+]
+
+[project.scripts]
+nodus = "nodus_cli.main:main"
+
+[tool.setuptools]
+py-modules = ["main", "model_tools", "toolsets", "batch_runner", "cli", "nodus_constants", "nodus_state", "nodus_time", "nodus_logging", "nodus_utils", "nodus_bootstrap"]
+
+[tool.setuptools.packages.find]
+include = ["agent", "agent.*", "cli", "nodus_cli", "nodus_cli.*", "gateway", "gateway.*", "executor", "executor.*", "cron", "cron.*", "utils", "utils.*", "config", "config.*", "session", "session.*", "skills", "skills.*", "bridge", "bridge.*", "security", "security.*", "command", "command.*", "apps", "apps.*", "web", "web.*", "webui", "webui.*", "templates", "templates.*", "api", "api.*", "pairing", "pairing.*", "plugins", "plugins.*", "providers", "providers.*"]

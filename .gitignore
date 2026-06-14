@@ -1,0 +1,30 @@
+# Bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Package
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Environment
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup
+*.bak
+*~
+
+# Logs
+logs/
+*.log
